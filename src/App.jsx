@@ -1,11 +1,21 @@
-import DynamicBezierScene from "./DynamicBeizerCurve";
+// import DynamicBezierScene from "./DynamicBeizerCurve";
 
-function App() {
+// function App() {
+//   return (
+//     <div>
+//       <DynamicBezierScene/>
+//     </div>
+//   );
+// }
+
+// export default App;
+import React from "react";
+import DynamicQuadraticBezier from "./components/DynamicQuadraticBezier.jsx";
+
+export default function App() {
   return (
-    <div>
-      <DynamicBezierScene/>
-    </div>
+    
+      <DynamicQuadraticBezier />
+    
   );
 }
-
-export default App;
