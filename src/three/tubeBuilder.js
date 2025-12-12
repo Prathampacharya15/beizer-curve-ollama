@@ -32,6 +32,56 @@ export const createTubeMaterial = (colorHex) => {
   });
 };
 
+
+// ----------------------------------------------------
+// 🎯 Smooth Curve Class — FIXES ALL KINKS
+// ----------------------------------------------------
+class SmoothSampledCurve extends THREE.Curve {
+  constructor(points) {
+    super();
+    this.points = points;
+
+    // Precompute smoothed tangents
+    this.tangents = [];
+
+    for (let i = 0; i < points.length; i++) {
+      const prev = points[Math.max(i - 1, 0)];
+      const next = points[Math.min(i + 1, points.length - 1)];
+
+      const t = new THREE.Vector3().subVectors(next, prev).normalize();
+      this.tangents.push(t);
+    }
+  }
+
+  getPoint(t) {
+    const idx = t * (this.points.length - 1);
+    const i = Math.floor(idx);
+    const frac = idx - i;
+
+    const p0 = this.points[i];
+    const p1 = this.points[i + 1] || p0;
+
+    return new THREE.Vector3().lerpVectors(p0, p1, frac);
+  }
+
+  // 🔥 CRITICAL — Smooth tangent for TubeGeometry
+  getTangent(t) {
+    const idx = t * (this.tangents.length - 1);
+    const i = Math.floor(idx);
+    const frac = idx - i;
+
+    const t0 = this.tangents[i];
+    const t1 = this.tangents[i + 1] || t0;
+
+    return new THREE.Vector3().lerpVectors(t0, t1, frac).normalize();
+  }
+}
+
+
+
+// ----------------------------------------------------
+// 🎯 REBUILD TUBE — with kink-free smooth normals
+// ----------------------------------------------------
 export const rebuildTube = (
   sceneRef,
   anchorPointsRef,
@@ -44,6 +94,7 @@ export const rebuildTube = (
   const scene = sceneRef.current;
   if (!scene) return;
 
+  // Remove old tube
   if (tubeRef.current) {
     tubeRef.current.geometry.dispose();
     tubeRef.current.material.dispose();
@@ -54,22 +105,28 @@ export const rebuildTube = (
 
   if (anchorPointsRef.current.length < 2) return;
 
+  // Sample cubic Bézier points
   const sampled = samplePathPoints(
     anchorPointsRef.current,
     controlPointsRef.current,
-    300   // smoother samples
-);
+    300
+  );
 
+  if (sampled.length < 2) return;
 
-  const path = new THREE.CatmullRomCurve3(sampled, false, "centripetal", 0.5);
+  // Use smooth curve (fixes kinks)
+  const curve = new SmoothSampledCurve(sampled);
+
+  // Tube resolution
+  const tubularSegments = Math.min(6000, sampled.length * 3);
+
   const geometry = new THREE.TubeGeometry(
-    path,
-    sampled.length * 2,
+    curve,
+    tubularSegments,
     radius,
-    48,           // radial segments: smoother curve
+    64,      // more radial segments = smoother curvature
     false
-);
-
+  );
 
   const material = createTubeMaterial(colorHex);
   const mesh = new THREE.Mesh(geometry, material);

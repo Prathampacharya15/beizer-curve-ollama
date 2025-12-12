@@ -17,8 +17,10 @@ import {
 import { attachPointerHandlers } from "../interactions/pointerHandlers";
 import { attachKeyboardHandlers } from "../interactions/keyboardHandlers";
 
-export default function DynamicQuadraticBezier() {
+export default function DynamicCubicBezier() {
   const mountRef = useRef(null);
+
+  // UI state
   const [isFreehand, setIsFreehand] = useState(false);
   const isFreehandRef = useRef(false);
 
@@ -28,15 +30,18 @@ export default function DynamicQuadraticBezier() {
   const [animType, setAnimType] = useState("disappear-start-to-end");
   const [timeLine, setTimeLine] = useState(3);
 
+  // Three.js refs
   const sceneRef = useRef(null);
   const cameraRef = useRef(null);
   const rendererRef = useRef(null);
   const raycasterRef = useRef(null);
+  const mouseRef = useRef(new THREE.Vector2());
+  const tangentLinesRef = useRef([]);
 
   const activeColorRef = useRef(lineColor);
   const activeWidthRef = useRef(lineWidth);
-  const mouseRef = useRef(new THREE.Vector2());
 
+  // Core geometry refs
   const anchorPointsRef = useRef([]);
   const anchorMeshesRef = useRef([]);
   const controlPointsRef = useRef([]);
@@ -44,12 +49,23 @@ export default function DynamicQuadraticBezier() {
   const tubeRef = useRef(null);
   const tubeMaterialRef = useRef(null);
 
-  const draggingRef = useRef({ active: false, type: null, index: -1, object: null });
+  const draggingRef = useRef({
+    active: false,
+    type: null,
+    segment: null,
+    which: null,
+    index: null,
+  });
+
   const isDrawingRef = useRef(true);
   const selectedRef = useRef(null);
 
-  const redrawAll = (radius = activeWidthRef.current, colorHex = activeColorRef.current) => {
+  // ---------- Redraw all (tube + anchors + cp1/cp2 spheres) ----------
+  const redrawAll = (radius = activeWidthRef.current, color = activeColorRef.current) => {
+    // compute control points (wrapper in other files expects this signature)
     computeControlPoints(anchorPointsRef, controlPointsRef, sceneRef, true);
+
+    // rebuild tube (use rebuildTube which expects sceneRef and refs)
     rebuildTube(
       sceneRef,
       anchorPointsRef,
@@ -57,46 +73,68 @@ export default function DynamicQuadraticBezier() {
       tubeRef,
       tubeMaterialRef,
       radius,
-      colorHex
+      color
     );
 
+    // remove & dispose anchors
+    const scene = sceneRef.current;
+    if (!scene) return;
+
     anchorMeshesRef.current.forEach((m) => {
-      sceneRef.current.remove(m);
-      m.geometry.dispose();
-      m.material.dispose();
+      try {
+        scene.remove(m);
+        if (m.geometry) m.geometry.dispose();
+        if (m.material) m.material.dispose();
+      } catch (err) {
+        // ignore
+      }
     });
     anchorMeshesRef.current = [];
 
+    // add anchors
     anchorPointsRef.current.forEach((p, i) => {
       const mesh = makeSphere(p, 0x2196f3, 0.16);
       mesh.userData = { type: "anchor", index: i };
-      sceneRef.current.add(mesh);
+      scene.add(mesh);
       anchorMeshesRef.current.push(mesh);
     });
 
-    controlPointsRef.current.forEach((cobj, i) => {
-      if (!cobj.sphere) {
-        const mesh = makeSphere(cobj.c, 0xff5252, 0.14);
-        mesh.userData = { type: "control", index: i };
-        sceneRef.current.add(mesh);
-        cobj.sphere = mesh;
-      } else {
-        cobj.sphere.position.copy(cobj.c);
-        cobj.sphere.userData = { type: "control", index: i };
-      }
+    // add/update control spheres for cp1/cp2
+    controlPointsRef.current.forEach((seg, segIndex) => {
+      ["cp1", "cp2"].forEach((key) => {
+        const cp = seg[key];
+        if (!cp) return; // safety
+
+        if (!cp.sphere) {
+          const mesh = makeSphere(cp.pos, 0xff5252, 0.14);
+          mesh.userData = { type: "control", segment: segIndex, which: key };
+          scene.add(mesh);
+          cp.sphere = mesh;
+        } else {
+          cp.sphere.position.copy(cp.pos);
+          cp.sphere.userData = { type: "control", segment: segIndex, which: key };
+        }
+      });
     });
   };
 
   const hideSpheres = () => {
     anchorMeshesRef.current.forEach((m) => (m.visible = false));
-    controlPointsRef.current.forEach((c) => c.sphere && (c.sphere.visible = false));
+    controlPointsRef.current.forEach((seg) => {
+      if (seg?.cp1?.sphere) seg.cp1.sphere.visible = false;
+      if (seg?.cp2?.sphere) seg.cp2.sphere.visible = false;
+    });
   };
 
   const showSpheres = () => {
     anchorMeshesRef.current.forEach((m) => (m.visible = true));
-    controlPointsRef.current.forEach((c) => c.sphere && (c.sphere.visible = true));
+    controlPointsRef.current.forEach((seg) => {
+      if (seg?.cp1?.sphere) seg.cp1.sphere.visible = true;
+      if (seg?.cp2?.sphere) seg.cp2.sphere.visible = true;
+    });
   };
 
+  // ---------- Setup: scene, renderer, handlers ----------
   useEffect(() => {
     setupScene({
       mountRef,
@@ -106,6 +144,7 @@ export default function DynamicQuadraticBezier() {
       raycasterRef,
     });
 
+    // pass wrappers so pointerHandlers and keyboard handlers can call computeControlPoints/rebuildTube correctly
     const cleanupPointer = attachPointerHandlers({
       rendererRef,
       raycasterRef,
@@ -133,46 +172,103 @@ export default function DynamicQuadraticBezier() {
         ),
       activeWidthRef,
       activeColorRef,
+      sceneRef,
+      tubeRef,
+      tubeMaterialRef,
     });
 
-   const cleanupKeyboard = attachKeyboardHandlers({
-  selectedRef,
-  anchorPointsRef,
-  controlPointsRef,
-  computeControlPoints: (update) =>
-    computeControlPoints(anchorPointsRef, controlPointsRef, sceneRef, update),
-  redrawAll,
-  activeWidthRef,
-  activeColorRef,
-});
+    const cleanupKeyboard = attachKeyboardHandlers({
+      selectedRef,
+      anchorPointsRef,
+      controlPointsRef,
+      computeControlPoints: (update) =>
+        computeControlPoints(anchorPointsRef, controlPointsRef, sceneRef, update),
+      redrawAll,
+      activeWidthRef,
+      activeColorRef,
+    });
 
-
+    // render loop
+    let raf = null;
     const animate = () => {
-      requestAnimationFrame(animate);
-      rendererRef.current.render(sceneRef.current, cameraRef.current);
+      raf = requestAnimationFrame(animate);
+      if (rendererRef.current && sceneRef.current && cameraRef.current) {
+        rendererRef.current.render(sceneRef.current, cameraRef.current);
+      }
     };
     animate();
 
     return () => {
-      cleanupPointer();
-      cleanupKeyboard();
-    };
-  }, []);
+      // cleanup handlers
+      cleanupPointer && cleanupPointer();
+      cleanupKeyboard && cleanupKeyboard();
 
+      cancelAnimationFrame(raf);
+
+      // dispose objects
+      const scene = sceneRef.current;
+      if (tubeRef.current && scene) {
+        try {
+          if (tubeRef.current.geometry) tubeRef.current.geometry.dispose();
+          if (tubeRef.current.material) tubeRef.current.material.dispose();
+          scene.remove(tubeRef.current);
+        } catch (err) {}
+      }
+
+      anchorMeshesRef.current.forEach((m) => {
+        try {
+          if (m.geometry) m.geometry.dispose();
+          if (m.material) m.material.dispose();
+          scene.remove(m);
+        } catch (err) {}
+      });
+
+      controlPointsRef.current.forEach((seg) => {
+        try {
+          if (seg?.cp1?.sphere) {
+            if (seg.cp1.sphere.geometry) seg.cp1.sphere.geometry.dispose();
+            if (seg.cp1.sphere.material) seg.cp1.sphere.material.dispose();
+            scene.remove(seg.cp1.sphere);
+          }
+          if (seg?.cp2?.sphere) {
+            if (seg.cp2.sphere.geometry) seg.cp2.sphere.geometry.dispose();
+            if (seg.cp2.sphere.material) seg.cp2.sphere.material.dispose();
+            scene.remove(seg.cp2.sphere);
+          }
+        } catch (err) {}
+      });
+
+      // remove canvas
+      if (rendererRef.current && mountRef.current?.contains(rendererRef.current.domElement)) {
+        mountRef.current.removeChild(rendererRef.current.domElement);
+      }
+      if (rendererRef.current) {
+        try {
+          rendererRef.current.dispose();
+        } catch (err) {}
+      }
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []); // run once
+
+  // ---------- Sync color and width with UI ----------
   useEffect(() => {
     activeColorRef.current = lineColor;
     redrawAll(activeWidthRef.current, lineColor);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [lineColor]);
 
   useEffect(() => {
     activeWidthRef.current = lineWidth;
     redrawAll(lineWidth, activeColorRef.current);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [lineWidth]);
+
   useEffect(() => {
-  isFreehandRef.current = isFreehand;
-}, [isFreehand]);
+    isFreehandRef.current = isFreehand;
+  }, [isFreehand]);
 
-
+  // ---------- UI helpers ----------
   const startDrawing = () => {
     setIsDrawing(true);
     isDrawingRef.current = true;
@@ -202,6 +298,7 @@ export default function DynamicQuadraticBezier() {
         );
         break;
       case "width-change":
+        // animateWidth expects a rebuild callback for efficiency
         animateWidth(
           activeWidthRef,
           setLineWidth,
@@ -229,112 +326,92 @@ export default function DynamicQuadraticBezier() {
   };
 
   const clearAll = () => {
-  const scene = sceneRef.current;
-  if (!scene) return;
+    const scene = sceneRef.current;
+    if (!scene) return;
 
-  // --- remove & dispose anchor meshes ---
-  if (anchorMeshesRef.current && anchorMeshesRef.current.length) {
+    // remove anchors
     anchorMeshesRef.current.forEach((m) => {
       try {
         if (m.geometry) m.geometry.dispose();
         if (m.material) m.material.dispose();
         scene.remove(m);
-      } catch (err) {
-        // ignore if already removed
-      }
+      } catch (err) {}
     });
-  }
-  anchorMeshesRef.current = [];
-  anchorPointsRef.current = [];
+    anchorMeshesRef.current = [];
+    anchorPointsRef.current = [];
 
-  // --- remove & dispose control spheres ---
-  if (controlPointsRef.current && controlPointsRef.current.length) {
-    controlPointsRef.current.forEach((c) => {
-      if (c && c.sphere) {
-        try {
-          if (c.sphere.geometry) c.sphere.geometry.dispose();
-          if (c.sphere.material) c.sphere.material.dispose();
-          scene.remove(c.sphere);
-        } catch (err) {
-          // ignore
+    // remove controls
+    controlPointsRef.current.forEach((seg) => {
+      try {
+        if (seg?.cp1?.sphere) {
+          if (seg.cp1.sphere.geometry) seg.cp1.sphere.geometry.dispose();
+          if (seg.cp1.sphere.material) seg.cp1.sphere.material.dispose();
+          scene.remove(seg.cp1.sphere);
         }
-      }
+        if (seg?.cp2?.sphere) {
+          if (seg.cp2.sphere.geometry) seg.cp2.sphere.geometry.dispose();
+          if (seg.cp2.sphere.material) seg.cp2.sphere.material.dispose();
+          scene.remove(seg.cp2.sphere);
+        }
+      } catch (err) {}
     });
-  }
-  controlPointsRef.current = [];
+    controlPointsRef.current = [];
 
-  // --- remove & dispose tube ---
-  if (tubeRef.current) {
-    try {
-      if (tubeRef.current.geometry) tubeRef.current.geometry.dispose();
-      if (tubeRef.current.material) tubeRef.current.material.dispose();
-      scene.remove(tubeRef.current);
-    } catch (err) {
-      // ignore
+    // remove tube
+    if (tubeRef.current) {
+      try {
+        if (tubeRef.current.geometry) tubeRef.current.geometry.dispose();
+        if (tubeRef.current.material) tubeRef.current.material.dispose();
+        scene.remove(tubeRef.current);
+      } catch (err) {}
     }
-  }
-  tubeRef.current = null;
-  tubeMaterialRef.current = null;
+    tubeRef.current = null;
+    tubeMaterialRef.current = null;
 
-  // reset helpers
-  selectedRef.current = null;
-  draggingRef.current = { active: false, type: null, index: -1, object: null };
+    selectedRef.current = null;
+  };
 
-  // optional: ensure UI state synced
-  activeWidthRef.current = lineWidth;
-  activeColorRef.current = lineColor;
-  isFreehandRef.current = isFreehand;
+  const deleteSelected = () => {
+    if (!selectedRef.current) return;
+    const sel = selectedRef.current;
 
-};
+    if (sel.type === "anchor") {
+      anchorPointsRef.current.splice(sel.index, 1);
+    } else if (sel.type === "control") {
+      const seg = controlPointsRef.current[sel.segment];
+      if (seg && seg[sel.which]) {
+        seg[sel.which].manual = false;
+      }
+    }
 
-
-
-   const deleteSelected = () => {
-  if (!selectedRef.current) return;
-  const { type, index } = selectedRef.current;
-
-  if (type === "anchor") {
-    anchorPointsRef.current.splice(index, 1);
     computeControlPoints(anchorPointsRef, controlPointsRef, sceneRef, true);
     redrawAll(lineWidth, lineColor);
-  } 
-  else if (type === "control") {
-    if (controlPointsRef.current[index]) {
-      controlPointsRef.current[index].manual = false;
-      computeControlPoints(anchorPointsRef, controlPointsRef, sceneRef, true);
-      redrawAll(lineWidth, lineColor);
-    }
-  }
 
-  selectedRef.current = null;
-};
-
+    selectedRef.current = null;
+  };
 
   return (
     <>
       <ControlPanel
-    isDrawing={isDrawing}
-    startDrawing={startDrawing}
-    stopDrawing={stopDrawing}
-    lineColor={lineColor}
-    setLineColor={setLineColor}
-    lineWidth={lineWidth}
-    setLineWidth={setLineWidth}
-    animType={animType}
-    setAnimType={setAnimType}
-    timeLine={timeLine}
-    setTimeLine={setTimeLine}
-    runSelectedAnimation={runSelectedAnimation}
-    showSpheres={showSpheres}
-    hideSpheres={hideSpheres}
-    clearAll={clearAll}
-    deleteSelected={deleteSelected}
-
-    // Correct
-    isFreehand={isFreehand}
-    setIsFreehand={setIsFreehand}
-/>
-
+        isDrawing={isDrawing}
+        startDrawing={startDrawing}
+        stopDrawing={stopDrawing}
+        lineColor={lineColor}
+        setLineColor={setLineColor}
+        lineWidth={lineWidth}
+        setLineWidth={setLineWidth}
+        animType={animType}
+        setAnimType={setAnimType}
+        timeLine={timeLine}
+        setTimeLine={setTimeLine}
+        runSelectedAnimation={runSelectedAnimation}
+        showSpheres={showSpheres}
+        hideSpheres={hideSpheres}
+        clearAll={clearAll}
+        deleteSelected={deleteSelected}
+        isFreehand={isFreehand}
+        setIsFreehand={setIsFreehand}
+      />
 
       <div
         ref={mountRef}

@@ -11,19 +11,27 @@ export const attachKeyboardHandlers = ({
     if (e.key !== "Delete") return;
     if (!selectedRef.current) return;
 
-    const { type, index } = selectedRef.current;
+    const sel = selectedRef.current;
 
-    if (type === "anchor") {
-      anchorPointsRef.current.splice(index, 1);
+    // -------------------------
+    // DELETE ANCHOR
+    // -------------------------
+    if (sel.type === "anchor") {
+      anchorPointsRef.current.splice(sel.index, 1);
     }
 
-    if (type === "control") {
-      if (controlPointsRef.current[index]) {
-        controlPointsRef.current[index].manual = false;
+    // -------------------------
+    // RESET SINGLE CONTROL POINT (cp1 or cp2)
+    // -------------------------
+    if (sel.type === "control") {
+      const seg = controlPointsRef.current[sel.segment];
+      if (seg && seg[sel.which]) {
+        seg[sel.which].manual = false;   // reset manual state
       }
     }
 
-    computeControlPoints(true);
+    // Recompute and redraw cubic curve
+    computeControlPoints(anchorPointsRef, controlPointsRef, null, true);
     redrawAll(activeWidthRef.current, activeColorRef.current);
 
     selectedRef.current = null;

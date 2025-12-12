@@ -7,64 +7,68 @@ export const computeControlPoints = (
   updateExisting = false
 ) => {
   const anchors = anchorPointsRef.current;
-  const n = anchors.length;
   const cps = controlPointsRef.current;
-  const scene = sceneRef.current;
+  const n = anchors.length;
 
   if (n < 2) {
-    cps.forEach((cobj) => {
-      if (cobj?.sphere && scene) {
-        scene.remove(cobj.sphere);
-        cobj.sphere.geometry.dispose();
-        cobj.sphere.material.dispose();
-      }
-    });
     controlPointsRef.current = [];
     return;
   }
 
-  for (let i = n - 1; i < cps.length; i++) {
-    const cobj = cps[i];
-    if (cobj?.sphere && scene) {
-      scene.remove(cobj.sphere);
-      cobj.sphere.geometry.dispose();
-      cobj.sphere.material.dispose();
-    }
-  }
+  const smoothFactor = 0.35; // controls curvature strength
 
   for (let i = 0; i < n - 1; i++) {
-    const p0 = anchors[i];
-    const p1 = anchors[i + 1];
-    const midpoint = new THREE.Vector3().addVectors(p0, p1).multiplyScalar(0.5);
-    const dir = new THREE.Vector3().subVectors(p1, p0);
-    const offsetMag = Math.max(0.4, dir.length() * 0.25);
-    const offset = new THREE.Vector3(-dir.y, dir.x, 0)
-      .normalize()
-      .multiplyScalar(offsetMag);
-    const c = new THREE.Vector3().addVectors(midpoint, offset);
+    const A = anchors[i];
+    const B = anchors[i + 1];
 
-    if (updateExisting && cps[i]) {
-      if (!cps[i].manual) cps[i].c.copy(c);
-    } else {
-      cps[i] = { c, sphere: cps[i]?.sphere || null, manual: cps[i]?.manual || false };
-    }
+    // tangent direction at A
+    let tangentA = new THREE.Vector3();
+    if (i === 0) tangentA.subVectors(anchors[i + 1], anchors[i]);
+    else tangentA.subVectors(anchors[i + 1], anchors[i - 1]);
+    tangentA.normalize();
+
+    // tangent direction at B
+    let tangentB = new THREE.Vector3();
+    if (i === n - 2) tangentB.subVectors(anchors[i + 1], anchors[i]);
+    else tangentB.subVectors(anchors[i + 2], anchors[i]);
+    tangentB.normalize();
+
+    const cp1Pos = A.clone().addScaledVector(tangentA, smoothFactor);
+    const cp2Pos = B.clone().addScaledVector(tangentB, -smoothFactor);
+
+    if (!cps[i]) cps[i] = {};
+    if (!cps[i].cp1) cps[i].cp1 = { pos: new THREE.Vector3(), manual: false };
+    if (!cps[i].cp2) cps[i].cp2 = { pos: new THREE.Vector3(), manual: false };
+
+    if (!updateExisting || !cps[i].cp1.manual)
+      cps[i].cp1.pos.copy(cp1Pos);
+
+    if (!updateExisting || !cps[i].cp2.manual)
+      cps[i].cp2.pos.copy(cp2Pos);
   }
 
   cps.length = n - 1;
 };
 
-export const samplePathPoints = (anchors, controls, perSegment = 80) => {
-    const pts = [];
-    if (anchors.length < 2) return pts;
-    for (let i = 0; i < anchors.length - 1; i++) {
-      const p0 = anchors[i].clone();
-      const p1 = anchors[i + 1].clone();
-      const cp = controls[i].c.clone();
-      const curve = new THREE.QuadraticBezierCurve3(p0, cp, p1);
-      const segmentPoints = curve.getPoints(perSegment);
-      // avoid duplicate points at joints
-      if (i > 0) segmentPoints.shift();
-      pts.push(...segmentPoints);
-    }
-    return pts;
-  };
+
+export const samplePathPoints = (anchors, controls, perSegment = 100) => {
+  const pts = [];
+  if (anchors.length < 2) return pts;
+
+  for (let i = 0; i < anchors.length - 1; i++) {
+    const A = anchors[i].clone();
+    const B = anchors[i + 1].clone();
+
+    const cp1 = controls[i].cp1.pos.clone();
+    const cp2 = controls[i].cp2.pos.clone();
+
+    const curve = new THREE.CubicBezierCurve3(A, cp1, cp2, B);
+
+    const segPts = curve.getPoints(perSegment);
+    if (i > 0) segPts.shift();
+
+    pts.push(...segPts);
+  }
+
+  return pts;
+};

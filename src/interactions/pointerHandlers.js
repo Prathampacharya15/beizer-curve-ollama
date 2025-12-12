@@ -18,11 +18,9 @@ export const attachPointerHandlers = ({
   activeWidthRef,
   activeColorRef,
   sceneRef,
-  tubeRef,
-  tubeMaterialRef,
 }) => {
   // ------------------------------
-  // WORLD POSITION FROM MOUSE
+  // GET WORLD POSITION UNDER CURSOR
   // ------------------------------
   const getPointerPlaneIntersection = (event) => {
     const rect = rendererRef.current.domElement.getBoundingClientRect();
@@ -30,7 +28,6 @@ export const attachPointerHandlers = ({
     mouseRef.current.y = -((event.clientY - rect.top) / rect.height) * 2 + 1;
 
     raycasterRef.current.setFromCamera(mouseRef.current, cameraRef.current);
-
     const plane = new THREE.Plane(new THREE.Vector3(0, 0, 1), 0);
     const hit = new THREE.Vector3();
     raycasterRef.current.ray.intersectPlane(plane, hit);
@@ -44,60 +41,101 @@ export const attachPointerHandlers = ({
     if (!rendererRef.current) return;
     event.preventDefault();
 
-    // ---------------------------------------------------
-    // FREEHAND MODE - START STROKE
-    // ---------------------------------------------------
+    // ----------------------------------------
+    // FREEHAND MODE — START NEW FREEHAND PATH
+    // ----------------------------------------
     if (isFreehandRef.current) {
       const p = getPointerPlaneIntersection(event);
-      anchorPointsRef.current = [p.clone()]; // reset stroke
-      draggingRef.current.active = true;      // allow drawing while dragging
+      anchorPointsRef.current = [p.clone()];
+      draggingRef.current.active = true;
       return;
     }
 
-    // ---------------------------------------------------
-    // NORMAL MODE CLICK HANDLING
-    // ---------------------------------------------------
+    // ----------------------------------------
+    // NORMAL CLICK HANDLING (ANCHOR / CP PICK)
+    // ----------------------------------------
     const rect = rendererRef.current.domElement.getBoundingClientRect();
-    const px = ((event.clientX - rect.left) / rect.width) * 2 - 1;
-    const py = -((event.clientY - rect.top) / rect.height) * 2 + 1;
-    mouseRef.current.set(px, py);
+    mouseRef.current.x = ((event.clientX - rect.left) / rect.width) * 2 - 1;
+    mouseRef.current.y = -((event.clientY - rect.top) / rect.height) * 2 + 1;
 
     raycasterRef.current.setFromCamera(mouseRef.current, cameraRef.current);
 
-    const clickable = [
-      ...anchorMeshesRef.current,
-      ...controlPointsRef.current.map((c) => c?.sphere).filter(Boolean),
-    ];
+    // Collect all control point spheres (cp1 + cp2)
+    const controlSpheres = [];
+    controlPointsRef.current.forEach((seg, segIndex) => {
+      if (seg?.cp1?.sphere) {
+        seg.cp1.sphere.userData = {
+          type: "control",
+          segment: segIndex,
+          which: "cp1",
+        };
+        controlSpheres.push(seg.cp1.sphere);
+      }
+      if (seg?.cp2?.sphere) {
+        seg.cp2.sphere.userData = {
+          type: "control",
+          segment: segIndex,
+          which: "cp2",
+        };
+        controlSpheres.push(seg.cp2.sphere);
+      }
+    });
+
+    const clickable = [...anchorMeshesRef.current, ...controlSpheres];
 
     const hit = raycasterRef.current.intersectObjects(clickable, false);
 
+    // ----------------------------------------
+    // HIT ANCHOR / CONTROL
+    // ----------------------------------------
     if (hit.length > 0) {
       const obj = hit[0].object;
       const ud = obj.userData;
 
-      draggingRef.current = {
-        active: true,
-        type: ud.type,
-        index: ud.index,
-        object: obj,
-      };
-
-      selectedRef.current = { type: ud.type, index: ud.index };
-
-      if (ud.type === "control") {
-        controlPointsRef.current[ud.index].manual = true;
+      // -------------------
+      // ANCHOR SELECTED
+      // -------------------
+      if (ud.type === "anchor") {
+        draggingRef.current = {
+          active: true,
+          type: "anchor",
+          index: ud.index,
+        };
+        selectedRef.current = { type: "anchor", index: ud.index };
+        return;
       }
 
-      return;
+      // -------------------
+      // CP1 / CP2 SELECTED
+      // -------------------
+      if (ud.type === "control") {
+        draggingRef.current = {
+          active: true,
+          type: "control",
+          segment: ud.segment,
+          which: ud.which,
+        };
+
+        controlPointsRef.current[ud.segment][ud.which].manual = true;
+
+        selectedRef.current = {
+          type: "control",
+          segment: ud.segment,
+          which: ud.which,
+        };
+
+        return;
+      }
     }
 
-    // ---------------------------------------------------
-    // If clicking empty space → add anchor point
-    // ---------------------------------------------------
+    // ----------------------------------------
+    // CLICK EMPTY → ADD ANCHOR POINT
+    // ----------------------------------------
     if (isDrawingRef.current) {
       const p = getPointerPlaneIntersection(event);
       anchorPointsRef.current.push(p.clone());
-      computeControlPoints(true);
+
+      computeControlPoints(anchorPointsRef, controlPointsRef, sceneRef, true);
       redrawAll(activeWidthRef.current, activeColorRef.current);
     }
   };
@@ -109,86 +147,69 @@ export const attachPointerHandlers = ({
     if (!draggingRef.current.active) return;
     event.preventDefault();
 
-    // ---------------------------------------------------
+    const p = getPointerPlaneIntersection(event);
+    const d = draggingRef.current;
+
+    // ----------------------------------------
     // FREEHAND DRAWING MODE
-    // ---------------------------------------------------
+    // ----------------------------------------
     if (isFreehandRef.current) {
-      const p = getPointerPlaneIntersection(event);
       const pts = anchorPointsRef.current;
       const last = pts[pts.length - 1];
 
-      // Add new point only if moved enough
       if (!last || last.distanceTo(p) > 0.05) {
         pts.push(p.clone());
       }
 
-      // Auto control points
       computeControlPoints(anchorPointsRef, controlPointsRef, sceneRef, false);
-
-      // Rebuild live
-      rebuildTube(
-        activeWidthRef.current,
-        activeColorRef.current
-      );
-
-      return; // skip normal dragging
+      rebuildTube(activeWidthRef.current, activeColorRef.current);
+      return;
     }
 
-    // ---------------------------------------------------
-    // NORMAL DRAGGING OF ANCHORS / CONTROL POINTS
-    // ---------------------------------------------------
-    const p = getPointerPlaneIntersection(event);
-    const d = draggingRef.current;
-
-    // --------------------
+    // ----------------------------------------
     // DRAGGING ANCHOR
-    // --------------------
+    // ----------------------------------------
     if (d.type === "anchor") {
       anchorPointsRef.current[d.index].copy(p);
 
-      // Update left CP
-      if (d.index - 1 >= 0) {
-        const cp = controlPointsRef.current[d.index - 1];
-        if (cp && !cp.manual) {
-          const p0 = anchorPointsRef.current[d.index - 1];
-          const p1 = anchorPointsRef.current[d.index];
-          const mid = new THREE.Vector3().addVectors(p0, p1).multiplyScalar(0.5);
-          const dir = new THREE.Vector3().subVectors(p1, p0);
-          const off = new THREE.Vector3(-dir.y, dir.x, 0)
-            .normalize()
-            .multiplyScalar(Math.max(0.4, dir.length() * 0.25));
-          cp.c.copy(mid.add(off));
-          cp.sphere.position.copy(cp.c);
+      // Update LEFT seg cp2 if not manual
+      if (d.index > 0) {
+        const seg = controlPointsRef.current[d.index - 1];
+        if (seg && !seg.cp2.manual) {
+          const A = anchorPointsRef.current[d.index - 1];
+          const B = anchorPointsRef.current[d.index];
+          const dir = new THREE.Vector3().subVectors(B, A);
+          seg.cp2.pos.copy(A.clone().add(dir.clone().multiplyScalar(0.66)));
+          seg.cp2.sphere.position.copy(seg.cp2.pos);
         }
       }
 
-      // Update right CP
+      // Update RIGHT seg cp1 if not manual
       if (d.index < anchorPointsRef.current.length - 1) {
-        const cp = controlPointsRef.current[d.index];
-        if (cp && !cp.manual) {
-          const p0 = anchorPointsRef.current[d.index];
-          const p1 = anchorPointsRef.current[d.index + 1];
-          const mid = new THREE.Vector3().addVectors(p0, p1).multiplyScalar(0.5);
-          const dir = new THREE.Vector3().subVectors(p1, p0);
-          const off = new THREE.Vector3(-dir.y, dir.x, 0)
-            .normalize()
-            .multiplyScalar(Math.max(0.4, dir.length() * 0.25));
-          cp.c.copy(mid.add(off));
-          cp.sphere.position.copy(cp.c);
+        const seg = controlPointsRef.current[d.index];
+        if (seg && !seg.cp1.manual) {
+          const A = anchorPointsRef.current[d.index];
+          const B = anchorPointsRef.current[d.index + 1];
+          const dir = new THREE.Vector3().subVectors(B, A);
+          seg.cp1.pos.copy(A.clone().add(dir.clone().multiplyScalar(0.33)));
+          seg.cp1.sphere.position.copy(seg.cp1.pos);
         }
       }
     }
 
-    // --------------------
-    // DRAGGING CONTROL POINT
-    // --------------------
-    else if (d.type === "control") {
-      const cp = controlPointsRef.current[d.index];
-      cp.c.copy(p);
-      cp.sphere.position.copy(p);
+    // ----------------------------------------
+    // DRAGGING CONTROL POINT (cp1 / cp2)
+    // ----------------------------------------
+    if (d.type === "control") {
+      const seg = controlPointsRef.current[d.segment];
+      if (!seg) return;
+
+      const cp = seg[d.which];
+      cp.pos.copy(p);
+      if (cp.sphere) cp.sphere.position.copy(p);
     }
 
-    // Rebuild tube after dragging
+    // LIVE REBUILD TUBE + MESH POSITION UPDATE
     rebuildTube(activeWidthRef.current, activeColorRef.current);
 
     anchorMeshesRef.current.forEach((m, i) =>
