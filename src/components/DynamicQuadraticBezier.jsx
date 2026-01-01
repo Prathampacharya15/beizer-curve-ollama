@@ -1,5 +1,8 @@
 import React, { useRef, useEffect, useState } from "react";
 import * as THREE from "three";
+import { generateCurveFromPrompt } from "../ai/gemini";
+import AIChatBox from "./AIChatBox";
+
 
 import ControlPanel from "./ControlPanel";
 import { setupScene } from "../three/sceneSetup";
@@ -100,22 +103,28 @@ export default function DynamicCubicBezier() {
     });
 
     // add/update control spheres for cp1/cp2
-    controlPointsRef.current.forEach((seg, segIndex) => {
-      ["cp1", "cp2"].forEach((key) => {
-        const cp = seg[key];
-        if (!cp) return; // safety
+    controlPointsRef.current.forEach((seg, i) => {
+  // CP1
+  if (!seg.cp1.sphere) {
+    const s1 = makeSphere(seg.cp1.pos, 0xff5252, 0.12);
+    s1.userData = { type: "control", segment: i, which: "cp1" };
+    sceneRef.current.add(s1);
+    seg.cp1.sphere = s1;
+  } else {
+    seg.cp1.sphere.position.copy(seg.cp1.pos);
+  }
 
-        if (!cp.sphere) {
-          const mesh = makeSphere(cp.pos, 0xff5252, 0.14);
-          mesh.userData = { type: "control", segment: segIndex, which: key };
-          scene.add(mesh);
-          cp.sphere = mesh;
-        } else {
-          cp.sphere.position.copy(cp.pos);
-          cp.sphere.userData = { type: "control", segment: segIndex, which: key };
-        }
-      });
-    });
+  // CP2
+  if (!seg.cp2.sphere) {
+    const s2 = makeSphere(seg.cp2.pos, 0xff5252, 0.12);
+    s2.userData = { type: "control", segment: i, which: "cp2" };
+    sceneRef.current.add(s2);
+    seg.cp2.sphere = s2;
+  } else {
+    seg.cp2.sphere.position.copy(seg.cp2.pos);
+  }
+});
+
   };
 
   const hideSpheres = () => {
@@ -371,24 +380,93 @@ export default function DynamicCubicBezier() {
     selectedRef.current = null;
   };
 
-  const deleteSelected = () => {
-    if (!selectedRef.current) return;
-    const sel = selectedRef.current;
+ const deleteSelected = () => {
+  if (!selectedRef.current) return;
 
-    if (sel.type === "anchor") {
-      anchorPointsRef.current.splice(sel.index, 1);
-    } else if (sel.type === "control") {
-      const seg = controlPointsRef.current[sel.segment];
-      if (seg && seg[sel.which]) {
-        seg[sel.which].manual = false;
-      }
+  const sel = selectedRef.current;
+
+  if (sel.type === "anchor") {
+    anchorPointsRef.current.splice(sel.index, 1);
+  }
+
+  if (sel.type === "control") {
+    const seg = controlPointsRef.current[sel.segment];
+    if (!seg) return;
+
+    seg[sel.which].manual = false;
+  }
+
+  computeControlPoints(anchorPointsRef, controlPointsRef, sceneRef, true);
+  redrawAll(lineWidth, lineColor);
+
+  selectedRef.current = null;
+};
+
+const handleAICreateCurve = async (prompt) => {
+  try {
+    const res = await fetch("http://localhost:5000/api/generate-curve", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ prompt }),
+    });
+
+    const data = await res.json();
+
+    if (!data.anchors || !data.controls) {
+      throw new Error("Invalid AI response");
     }
 
-    computeControlPoints(anchorPointsRef, controlPointsRef, sceneRef, true);
-    redrawAll(lineWidth, lineColor);
+    // Apply anchors
+    anchorPointsRef.current = data.anchors.map(
+      (p) => new THREE.Vector3(p.x, p.y, p.z)
+    );
 
-    selectedRef.current = null;
-  };
+    // Apply controls
+    controlPointsRef.current = data.controls.map((seg) => ({
+      cp1: {
+        pos: new THREE.Vector3(seg.cp1.x, seg.cp1.y, seg.cp1.z),
+        manual: true,
+        sphere: null,
+      },
+      cp2: {
+        pos: new THREE.Vector3(seg.cp2.x, seg.cp2.y, seg.cp2.z),
+        manual: true,
+        sphere: null,
+      },
+    }));
+
+    redrawAll(lineWidth, lineColor);
+  } catch (err) {
+    console.error("AI curve failed:", err);
+    alert("AI failed to generate curve");
+  }
+};
+
+
+
+  const applyAICreateCurve = (aiResult) => {
+  if (!aiResult || aiResult.type !== "create_curve") return;
+
+  // Clear everything first
+  clearAll();
+
+  // Convert anchors to Vector3
+  anchorPointsRef.current = aiResult.anchors.map(
+    ([x, y, z]) => new THREE.Vector3(x, y, z)
+  );
+
+  // Auto-generate cubic control points
+  computeControlPointsCubic(
+    anchorPointsRef,
+    controlPointsRef,
+    sceneRef,
+    false
+  );
+
+  // Build visuals
+  redrawAll(activeWidthRef.current, activeColorRef.current);
+};
+
 
   return (
     <>
@@ -411,7 +489,10 @@ export default function DynamicCubicBezier() {
         deleteSelected={deleteSelected}
         isFreehand={isFreehand}
         setIsFreehand={setIsFreehand}
+        onAICreateCurve={handleAICreateCurve}
+        
       />
+        <AIChatBox onSubmit={handleAICreateCurve} />
 
       <div
         ref={mountRef}

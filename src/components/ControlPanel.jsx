@@ -1,3 +1,6 @@
+// import { generateCurveFromPrompt } from "../ai/gemini";
+// import {applyAICreateCurve} from "./DynamicCubicBezier"
+
 export default function ControlPanel({
   isDrawing,
   startDrawing,
@@ -17,6 +20,7 @@ export default function ControlPanel({
   deleteSelected,
   isFreehand,
   setIsFreehand,
+  onAICreateCurve,
 }) {
   return (
     <>
@@ -231,6 +235,23 @@ export default function ControlPanel({
   >
     🗑 Delete Selected
   </button>
+
+  <button
+  onClick={onAICreateCurve}
+  style={{
+    padding: "10px",
+    borderRadius: 10,
+    border: "none",
+    background: "linear-gradient(135deg,#6a11cb,#2575fc)",
+    color: "white",
+    fontWeight: 700,
+    cursor: "pointer",
+  }}
+>
+   AI Create Curve
+</button>
+
+
   <button
   onClick={() => {
     setIsFreehand(!isFreehand);
@@ -248,6 +269,8 @@ export default function ControlPanel({
 >
   Freehand
 </button>
+ 
+
 
 
 </div>
@@ -266,3 +289,4 @@ export default function ControlPanel({
     </>
   );
 }
+
