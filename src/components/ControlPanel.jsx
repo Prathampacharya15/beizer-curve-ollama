@@ -25,8 +25,18 @@ export default function ControlPanel({
   onAnchorPositionChange,
   mirrorHandles,
   setMirrorHandles,
+  anchorInput,
+  setAnchorInput
 
 }) {
+  console.log("DEBUG setAnchorInput:", setAnchorInput);
+
+//   const [anchorInput, setAnchorInput] = useState(null);
+//   setAnchorInput({
+//   x: selectedAnchorPos.x.toFixed(4),
+//   y: selectedAnchorPos.y.toFixed(4),
+// });
+
   return (
     <>
       <div
@@ -241,7 +251,7 @@ export default function ControlPanel({
     🗑 Delete Selected
   </button>
 
-{selectedAnchorPos && (
+{anchorInput && (
   <div
     style={{
       marginTop: 12,
@@ -266,13 +276,27 @@ export default function ControlPanel({
         }}
       >
         <span style={{ width: 16 }}>{axis.toUpperCase()}</span>
+
         <input
           type="number"
           step="0.1"
-          value={Number(selectedAnchorPos[axis]).toFixed(4)}
+          value={anchorInput[axis]}
           onChange={(e) =>
-            onAnchorPositionChange(axis, parseFloat(e.target.value))
+            setAnchorInput((prev) => ({
+              ...prev,
+              [axis]: e.target.value,
+            }))
           }
+          onBlur={() => {
+            const value = parseFloat(anchorInput[axis]);
+            if (!isNaN(value)) {
+              onAnchorPositionChange(axis, value);
+              setAnchorInput((prev) => ({
+                ...prev,
+                [axis]: value.toFixed(4),
+              }));
+            }
+          }}
           style={{
             flex: 1,
             background: "#000",
@@ -286,6 +310,7 @@ export default function ControlPanel({
     ))}
   </div>
 )}
+
 
  
 

@@ -4,7 +4,7 @@ import { generateCurveFromPrompt } from "../ai/gemini";
 import AIChatBox from "./AIChatBox";
 import { createHandleLine, updateHandleLine } from "../three/handleLines";
 import { createNumberLabel } from "../three/numberLabel";
-
+import { executeAICommands } from "./aiCommandExecutor";
 
 import ControlPanel from "./ControlPanel";
 import { setupScene } from "../three/sceneSetup";
@@ -29,6 +29,7 @@ export default function DynamicCubicBezier() {
   // UI state
   const [isFreehand, setIsFreehand] = useState(false);
   const isFreehandRef = useRef(false);
+  const isEditingAnchorInputRef = useRef(false);
 
 
   const [anchorInput, setAnchorInput] = useState(null);
@@ -108,6 +109,7 @@ export default function DynamicCubicBezier() {
   mesh.userData = { type: "anchor", index: i };
 
   // 🔢 Number label
+  i=i+1;
   const label = createNumberLabel(i.toString());
   label.position.set(0, 0.45, 0); // above sphere
   mesh.add(label);
@@ -203,6 +205,9 @@ controlPointsRef.current.forEach((seg, i) => {
       anchorPointsRef,
       setSelectedAnchorPos,
       mirrorHandlesRef,
+      anchorInput,
+      isEditingAnchorInputRef,
+      setAnchorInput,
 
 
       computeControlPoints: (update) =>
@@ -321,6 +326,19 @@ controlPointsRef.current.forEach((seg, i) => {
   mirrorHandlesRef.current = mirrorHandles;
   console.log("ON");
 }, [mirrorHandles]);
+
+useEffect(() => {
+  if (!selectedAnchorPos || anchorInput) return;
+
+  setAnchorInput({
+    x: selectedAnchorPos.x.toFixed(4),
+    y: selectedAnchorPos.y.toFixed(4),
+  });
+}, [selectedAnchorPos]);
+
+
+
+
   // ---------- UI helpers ----------
   const startDrawing = () => {
     setIsDrawing(true);
@@ -463,46 +481,108 @@ controlPointsRef.current.forEach((seg, i) => {
   setSelectedAnchorPos(null);
 };
 
+
+
+
+// const handleAICreateCurve = async (prompt) => {
+//   try {
+//     const result = await window.ai.generateCurve(prompt);
+
+//     // -----------------------------
+//     // FORMAT A: Direct geometry
+//     // -----------------------------
+//     if (result.anchors && result.controls) {
+
+//       // 1️⃣ Apply anchors ONLY
+//       anchorPointsRef.current = result.anchors.map(
+//         (p) => new THREE.Vector3(p.x, p.y, p.z ?? 0)
+//       );
+
+//       // 2️⃣ ⚠️ CLEAR control points completely
+//       controlPointsRef.current = [];
+
+//       // 3️⃣ Rebuild canonical cubic controls
+//       computeControlPoints(
+//         anchorPointsRef,
+//         controlPointsRef,
+//         sceneRef,
+//         false
+//       );
+
+//       // 4️⃣ OPTIONAL: override with AI controls (safe)
+//       result.controls.forEach((seg, i) => {
+//         const cpSeg = controlPointsRef.current[i];
+//         if (!cpSeg) return;
+
+//         cpSeg.cp1.pos.set(seg.cp1.x, seg.cp1.y, seg.cp1.z ?? 0);
+//         cpSeg.cp2.pos.set(seg.cp2.x, seg.cp2.y, seg.cp2.z ?? 0);
+
+//         cpSeg.cp1.manual = true;
+//         cpSeg.cp2.manual = true;
+//       });
+
+//       // 5️⃣ Full redraw (tube + spheres)
+//       redrawAll(lineWidth, lineColor);
+//       return;
+//     }
+
+//     // -----------------------------
+//     // FORMAT B: Commands
+//     // -----------------------------
+//     if (result.commands) {
+//       executeAICommands({
+//         commands: result.commands,
+//         anchorPointsRef,
+//         controlPointsRef,
+//         computeControlPoints,
+//         redrawAll,
+//         sceneRef,
+//         activeWidthRef,
+//         activeColorRef,
+//       });
+//       return;
+//     }
+
+//     throw new Error("Unknown AI response format");
+
+//   } catch (err) {
+//     console.error("AI failed:", err);
+//     alert("AI failed to process request");
+//   }
+// };
+
+
+
 const handleAICreateCurve = async (prompt) => {
   try {
-    // const res = await fetch("http://localhost:5000/api/generate-curve", {
-    //   method: "POST",
-    //   headers: { "Content-Type": "application/json" },
-    //   body: JSON.stringify({ prompt }),
-    // });
-    const data = await window.ai.generateCurve(prompt);
+    const result = await window.ai.generateCurve(prompt);
 
-    // const data = await res.json();
-
-    if (!data.anchors || !data.controls) {
-      throw new Error("Invalid AI response");
+    if (!Array.isArray(result.commands)) {
+      throw new Error("AI did not return commands");
     }
 
-    // Apply anchors
-    anchorPointsRef.current = data.anchors.map(
-      (p) => new THREE.Vector3(p.x, p.y, p.z)
-    );
+    executeAICommands({
+      commands: result.commands,
+      anchorPointsRef,
+      controlPointsRef,
+      computeControlPoints,
+      redrawAll,
+      rebuildTube,
+      sceneRef,
+      activeWidthRef,
+      activeColorRef,
+      anchorMeshesRef,
+      tubeRef,
+      tubeMaterialRef,
+    });
 
-    // Apply controls
-    controlPointsRef.current = data.controls.map((seg) => ({
-      cp1: {
-        pos: new THREE.Vector3(seg.cp1.x, seg.cp1.y, seg.cp1.z),
-        manual: true,
-        sphere: null,
-      },
-      cp2: {
-        pos: new THREE.Vector3(seg.cp2.x, seg.cp2.y, seg.cp2.z),
-        manual: true,
-        sphere: null,
-      },
-    }));
-
-    redrawAll(lineWidth, lineColor);
   } catch (err) {
-    console.error("AI curve failed:", err);
-    alert("AI failed to generate curve");
+    console.error("AI failed:", err);
+    alert("AI could not understand the request");
   }
 };
+
+
 
   const updateSelectedAnchorPosition = (axis, value) => {
   if (!selectedRef.current) return;
@@ -581,6 +661,9 @@ const handleAICreateCurve = async (prompt) => {
        onAnchorPositionChange={updateSelectedAnchorPosition}
        mirrorHandles={mirrorHandles}
       setMirrorHandles={setMirrorHandles}
+      anchorInput={anchorInput}
+      setAnchorInput={setAnchorInput}
+      
 
         
       />
