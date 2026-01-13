@@ -1,6 +1,6 @@
 import * as THREE from "three";
 
-const SCENE_LIMIT = 20; // clamp bounds
+const SCENE_LIMIT = 6; // clamp bounds
 
 const clamp = (v) => Math.max(-SCENE_LIMIT, Math.min(SCENE_LIMIT, v));
 
@@ -80,19 +80,6 @@ export function executeAICommands({
 
   if (!geometryChanged) return;
 
-  computeControlPoints(anchorPointsRef, controlPointsRef, sceneRef, true);
-
-  rebuildTube(
-    sceneRef,
-    anchorPointsRef,
-    controlPointsRef,
-    tubeRef,
-    tubeMaterialRef,
-    activeWidthRef.current,
-    activeColorRef.current
-  );
-
-  anchorMeshesRef.current.forEach((m, i) =>
-    m.position.copy(anchorPointsRef.current[i])
-  );
+  // Use redrawAll to fully regenerate the scene visuals (anchors, lines, tube)
+  redrawAll(activeWidthRef.current, activeColorRef.current);
 }

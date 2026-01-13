@@ -124,6 +124,7 @@ export const attachPointerHandlers = ({
           y: p.y,
           z: p.z,
         });
+        setAnchorInput(null); // Force input reset to pick up new position
 
         return;
       }

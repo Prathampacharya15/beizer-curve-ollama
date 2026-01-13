@@ -1,7 +1,7 @@
 import gsap from "gsap";
 import * as THREE from "three";
 
-export const animateDisappear = (tubeMaterialRef, hideSpheres, duration, direction) => {
+export const animateDisappear = (tubeMaterialRef, hideSpheres, showSpheres, duration, direction) => {
   const mat = tubeMaterialRef.current;
   if (!mat) return;
 
@@ -18,6 +18,9 @@ export const animateDisappear = (tubeMaterialRef, hideSpheres, duration, directi
     onUpdate: () => {
       mat.uniforms.uProgress.value = obj.p;
     },
+    onComplete: () => {
+      if (showSpheres) showSpheres();
+    }
   });
 };
 
