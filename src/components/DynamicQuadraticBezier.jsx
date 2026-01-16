@@ -11,6 +11,7 @@ import { setupScene } from "../three/sceneSetup";
 import { makeSphere } from "../three/spheres";
 import { computeControlPoints } from "../three/curveMath";
 import { rebuildTube } from "../three/tubeBuilder";
+import { generateShapeData } from "../utils/beizerShapeGenerator";
 
 import {
   animateDisappear,
@@ -40,7 +41,13 @@ export default function DynamicCubicBezier() {
   const [animType, setAnimType] = useState("disappear-start-to-end");
   const [timeLine, setTimeLine] = useState(3);
   const [selectedAnchorPos, setSelectedAnchorPos] = useState(null);
-  const [mirrorHandles, setMirrorHandles] = useState(false)
+  const [mirrorHandles, setMirrorHandles] = useState(false);
+  const [isClosed, setIsClosed] = useState(false);
+  const isClosedRef = useRef(false);
+
+  useEffect(() => {
+    isClosedRef.current = isClosed;
+  }, [isClosed]);
 
   // Three.js refs
   const sceneRef = useRef(null);
@@ -85,7 +92,8 @@ export default function DynamicCubicBezier() {
       tubeRef,
       tubeMaterialRef,
       radius,
-      color
+      color,
+      isClosedRef.current
     );
 
     // remove & dispose anchors
@@ -225,7 +233,8 @@ export default function DynamicCubicBezier() {
           tubeRef,
           tubeMaterialRef,
           r,
-          c
+          c,
+          isClosedRef.current
         ),
       activeWidthRef,
       activeColorRef,
@@ -347,6 +356,9 @@ export default function DynamicCubicBezier() {
   const startDrawing = () => {
     setIsDrawing(true);
     isDrawingRef.current = true;
+    // Reset closed state for manual drawing
+    setIsClosed(false);
+    isClosedRef.current = false;
   };
 
   const stopDrawing = () => {
@@ -354,8 +366,9 @@ export default function DynamicCubicBezier() {
     isDrawingRef.current = false;
   };
 
-  const runSelectedAnimation = () => {
-    switch (animType) {
+  const runSelectedAnimation = (overrideType) => {
+    const typeToRun = typeof overrideType === "string" ? overrideType : animType;
+    switch (typeToRun) {
       case "disappear-start-to-end":
         animateDisappear(tubeMaterialRef, hideSpheres, showSpheres, timeLine, "start-to-end");
         break;
@@ -458,6 +471,10 @@ export default function DynamicCubicBezier() {
 
     selectedRef.current = null;
     setSelectedAnchorPos(null);
+
+    // Reset closed state
+    setIsClosed(false);
+    isClosedRef.current = false;
   };
 
   const deleteSelected = () => {
@@ -586,7 +603,10 @@ export default function DynamicCubicBezier() {
 
   const handleAICreateCurve = async (prompt) => {
     try {
-      const result = await window.ai.generateCurve(prompt);
+      // Create context object with current anchors
+      const currentAnchors = anchorPointsRef.current.map(p => ({ x: p.x, y: p.y }));
+
+      const result = await window.ai.generateCurve(prompt, currentAnchors);
 
       if (!Array.isArray(result.commands)) {
         throw new Error("AI did not return commands");
@@ -654,7 +674,7 @@ export default function DynamicCubicBezier() {
     );
 
     // Auto-generate cubic control points
-    computeControlPointsCubic(
+    computeControlPoints(
       anchorPointsRef,
       controlPointsRef,
       sceneRef,
@@ -663,6 +683,72 @@ export default function DynamicCubicBezier() {
 
     // Build visuals
     redrawAll(activeWidthRef.current, activeColorRef.current);
+  };
+
+
+  const handleCreateShape = (type) => {
+    // 1. Clear existing
+    clearAll();
+
+    // 2. Generate shape data
+    const { anchors, controls, closed } = generateShapeData(type, 1.5); // size=1.5
+
+    // 3. Update refs
+    anchorPointsRef.current = anchors;
+    setIsClosed(closed);
+    isClosedRef.current = closed; // sync immediately for redraw
+
+    // 4. Update controls
+    // If the generator provided controls (e.g. for Circle handles), use them
+    // Otherwise empty it and let computeControlPoints handle it (linear)
+    controlPointsRef.current = []; // Reset first
+
+    // We must initialize the controlPointsRef structure based on anchors length
+    // Structure: [ { cp1: {pos, manual}, cp2: {pos, manual} }, ... ]
+    // length should be anchors.length - 1 (or same as anchors if closed?)
+    // Our curveMath assumes open chain n-1 segments. 
+    // If closed, we might need an extra segment connecting last->first?
+    // beizerShapeGenerator adds the first point again at the end for closed shapes.
+
+    // Initial empty structure
+    // For closed shapes: we need anchors.length segments (including closing segment)
+    // For open shapes: we need anchors.length - 1 segments
+    const numSegments = closed ? anchors.length : anchors.length - 1;
+
+    for (let i = 0; i < numSegments; i++) {
+      controlPointsRef.current.push({
+        cp1: { pos: new THREE.Vector3(), manual: false, sphere: null },
+        cp2: { pos: new THREE.Vector3(), manual: false, sphere: null }
+      });
+    }
+
+    if (controls && controls.length > 0) {
+      // Apply manual controls
+      controls.forEach((c, i) => {
+        if (controlPointsRef.current[i]) {
+          controlPointsRef.current[i].cp1.pos.copy(c.cp1);
+          controlPointsRef.current[i].cp1.manual = true;
+
+          controlPointsRef.current[i].cp2.pos.copy(c.cp2);
+          controlPointsRef.current[i].cp2.manual = true;
+        }
+      });
+    } else {
+      // Let auto-computer handle it (but we might want them manual to enforce straight lines?)
+      // The generator for Rect already returns controls!
+      // So we just need to ensure computeControlPoints DOES NOT overwrite manual ones.
+      // It respects `manual: true`.
+    }
+
+    // 5. Compute (will fill in missing or respect manual)
+    // Use updateExisting=true to respect manual controls from shape generator
+    computeControlPoints(anchorPointsRef, controlPointsRef, sceneRef, true);
+
+    // 6. Draw
+    redrawAll(activeWidthRef.current, activeColorRef.current);
+
+    // Stop drawing mode so user can edit immediately
+    stopDrawing();
   };
 
 
@@ -694,6 +780,8 @@ export default function DynamicCubicBezier() {
         setMirrorHandles={setMirrorHandles}
         anchorInput={anchorInput}
         setAnchorInput={setAnchorInput}
+        onShapeSelect={handleCreateShape}
+
 
 
 

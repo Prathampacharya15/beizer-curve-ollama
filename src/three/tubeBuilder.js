@@ -89,7 +89,8 @@ export const rebuildTube = (
   tubeRef,
   tubeMaterialRef,
   radius,
-  colorHex
+  colorHex,
+  closed = false
 ) => {
   const scene = sceneRef.current;
   if (!scene) return;
@@ -125,7 +126,7 @@ export const rebuildTube = (
     tubularSegments,
     radius,
     64,      // more radial segments = smoother curvature
-    false
+    closed
   );
 
   const material = createTubeMaterial(colorHex);

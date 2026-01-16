@@ -17,11 +17,43 @@ export function executeAICommands({
   activeWidthRef,
   activeColorRef,
   anchorMeshesRef,
+  setLineColor,
+  showSpheres,
+  hideSpheres,
+  triggerAnimation,
 }) {
   let geometryChanged = false;
 
   commands.forEach((cmd) => {
     switch (cmd.type) {
+      /* ---------------- COLOR ---------------- */
+      case "color": {
+        if (cmd.hex && setLineColor) {
+          setLineColor(cmd.hex);
+          // Also update ref immediately so any subsequent redraws use it
+          activeColorRef.current = cmd.hex;
+          geometryChanged = true; // force redraw
+        }
+        break;
+      }
+
+      /* ---------------- VISIBILITY ---------------- */
+      case "visibility": {
+        if (cmd.show) {
+          showSpheres && showSpheres();
+        } else {
+          hideSpheres && hideSpheres();
+        }
+        break;
+      }
+
+      /* ---------------- ANIMATE ---------------- */
+      case "animate": {
+        if (cmd.name && triggerAnimation) {
+          triggerAnimation(cmd.name);
+        }
+        break;
+      }
 
       /* ---------------- CREATE ---------------- */
       case "create": {

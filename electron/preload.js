@@ -1,6 +1,6 @@
 const { contextBridge, ipcRenderer } = require("electron");
 
 contextBridge.exposeInMainWorld("ai", {
-  generateCurve: (prompt) =>
-    ipcRenderer.invoke("ai:generate-curve", prompt),
+  generateCurve: (prompt, context) =>
+    ipcRenderer.invoke("ai:generate-curve", prompt, context),
 });

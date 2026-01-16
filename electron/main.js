@@ -44,7 +44,7 @@ async function generateCurveFromPrompt(prompt) {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({
-      model: "llama3.2:latest",
+      model: "qwen2.5:7b",
       stream: false,
       prompt: `
 You are a JSON command generator for a Bezier curve editor.
@@ -52,35 +52,68 @@ You are a JSON command generator for a Bezier curve editor.
 RULES:
 1. Output ONLY valid JSON.
 2. The root object MUST have a "commands" array.
-3. Coordinates are [x, y] arrays where x,y are numbers between -5 and 5.
-4. Do NOT include markdown formatting (like \`\`\`json). Just the raw JSON.
+3. Coordinates are [x, y] arrays where x and y are numbers between -5 and 5.
+4. Do NOT include markdown formatting or explanations.
+5. Use 1-based indexing for all indices.
+6. AESTHETICS:
+   - Arrange points in a smooth, logical flow.
+   - Avoid zig-zags or self-intersections unless explicitly requested.
+   - Points should be evenly spaced.
+   - Shapes should be centered around [0,0] unless specified otherwise.
 
-Example Response:
-{
-  "commands": [
-    { "type": "create", "points": [[-3,0], [0,3], [3,0]] },
-    { "type": "move", "index": 1, "to": [2, 2] }
-  ]
-}
+GEOMETRY RULES:
+- All geometry is 2D (ignore Z axis).
+- For closed shapes, DO NOT repeat the first point at the end.
+- Use the minimum number of points required for clarity.
+
+SHAPE INTERPRETATION RULES:
+If the user asks for a shape (square, rectangle, triangle, polygon, circle):
+- Convert the shape into anchor points.
+- Use clockwise ordering.
+- Keep the shape within bounds [-5, 5].
+- Prefer symmetric, clean geometry.
 
 AVAILABLE COMMANDS:
 
 1. Create a new curve:
-   { "type": "create", "points": [[x,y], [x,y], [x,y]] }
+   { "type": "create", "points": [[x,y], [x,y], ...] }
 
 2. Move a point:
-   { "type": "move", "index": 1, "to": [x,y] }
-   (Note: Use 1-based indexing for "index")
+   { "type": "move", "index": number, "to": [x,y] }
 
 3. Insert a point:
-   { "type": "insert", "after": 1, "at": [x,y] }
-   (Note: "after" is the index of the point to insert after)
+   { "type": "insert", "after": number, "at": [x,y] }
 
 4. Delete a point:
-   { "type": "delete", "index": 1 }
+   { "type": "delete", "index": number }
 
 5. Smooth the curve:
    { "type": "smooth" }
+
+SHAPE GUIDELINES:
+
+- Triangle → 3 points
+- Square / Rectangle → 4 points
+- Pentagon → 5 points
+- Circle → approximate using 8–12 evenly spaced points
+- Regular polygon → evenly spaced points on a circle
+
+If the user asks for both:
+- creation + modification → output multiple commands in order
+- shape + smoothing → create first, then smooth
+
+Example Shape Outputs:
+
+Square:
+[[-2,-2], [2,-2], [2,2], [-2,2]]
+
+Triangle:
+[[-3,-2], [0,3], [3,-2]]
+
+Circle (8 points):
+[[3,0], [2.1,2.1], [0,3], [-2.1,2.1], [-3,0], [-2.1,-2.1], [0,-3], [2.1,-2.1]]
+
+
 
 USER REQUEST:
 ${prompt}
@@ -129,8 +162,8 @@ function forceCommandsFormat(json) {
 /* -------------------------------
    IPC HANDLER
 -------------------------------- */
-ipcMain.handle("ai:generate-curve", async (_, prompt) => {
-  return await generateCurveFromPrompt(prompt);
+ipcMain.handle("ai:generate-curve", async (_, prompt, context) => {
+  return await generateCurveFromPrompt(prompt, context);
 });
 
 /* -------------------------------

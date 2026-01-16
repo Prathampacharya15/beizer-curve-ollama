@@ -137,7 +137,11 @@ export const computeControlPoints = (
     }
   }
 
-  cps.length = n - 1;
+  // Don't truncate if we have more segments (e.g., for closed shapes)
+  // Only truncate if we have too many
+  if (cps.length > n - 1) {
+    cps.length = Math.min(cps.length, n); // Allow up to n segments for closed shapes
+  }
 };
 
 /**
@@ -147,16 +151,24 @@ export const samplePathPoints = (anchors, controls, perSegment = 100) => {
   const pts = [];
   if (anchors.length < 2) return pts;
 
-  for (let i = 0; i < anchors.length - 1; i++) {
+  // Sample all available control segments
+  // For closed shapes, controls.length === anchors.length
+  // For open shapes, controls.length === anchors.length - 1
+  const numSegments = Math.min(controls.length, anchors.length);
+
+  for (let i = 0; i < numSegments; i++) {
+    const A = anchors[i];
+    const B = anchors[(i + 1) % anchors.length]; // Wrap around for closed shapes
+
     const curve = new THREE.CubicBezierCurve3(
-      anchors[i],
+      A,
       controls[i].cp1.pos,
       controls[i].cp2.pos,
-      anchors[i + 1]
+      B
     );
 
     const seg = curve.getPoints(perSegment);
-    if (i > 0) seg.shift();
+    if (i > 0) seg.shift(); // Remove duplicate point except for first segment
     pts.push(...seg);
   }
 
