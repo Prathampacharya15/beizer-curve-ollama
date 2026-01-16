@@ -44,10 +44,19 @@ export default function DynamicCubicBezier() {
   const [mirrorHandles, setMirrorHandles] = useState(false);
   const [isClosed, setIsClosed] = useState(false);
   const isClosedRef = useRef(false);
+  const [showNumbers, setShowNumbers] = useState(true); // Toggle for anchor numbering
 
   useEffect(() => {
     isClosedRef.current = isClosed;
   }, [isClosed]);
+
+  useEffect(() => {
+    // Redraw when showNumbers changes to add/remove labels
+    if (anchorPointsRef.current.length > 0) {
+      redrawAll(activeWidthRef.current, activeColorRef.current);
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [showNumbers]);
 
   // Three.js refs
   const sceneRef = useRef(null);
@@ -81,8 +90,13 @@ export default function DynamicCubicBezier() {
 
   // ---------- Redraw all (tube + anchors + cp1/cp2 spheres) ----------
   const redrawAll = (radius = activeWidthRef.current, color = activeColorRef.current) => {
+    // Safety checks
+    const scene = sceneRef.current;
+    if (!scene) return;
+    if (anchorPointsRef.current.length < 1) return;
+
     // compute control points (wrapper in other files expects this signature)
-    computeControlPoints(anchorPointsRef, controlPointsRef, sceneRef, true);
+    computeControlPoints(anchorPointsRef, controlPointsRef, sceneRef, true, isClosedRef.current);
 
     // rebuild tube (use rebuildTube which expects sceneRef and refs)
     rebuildTube(
@@ -97,7 +111,6 @@ export default function DynamicCubicBezier() {
     );
 
     // remove & dispose anchors
-    const scene = sceneRef.current;
     if (!scene) return;
 
     anchorMeshesRef.current.forEach((m) => {
@@ -116,11 +129,13 @@ export default function DynamicCubicBezier() {
       const mesh = makeSphere(p, 0x2196f3, 0.16);
       mesh.userData = { type: "anchor", index: i };
 
-      // 🔢 Number label
-      i = i + 1;
-      const label = createNumberLabel(i.toString());
-      label.position.set(0, 0.45, 0); // above sphere
-      mesh.add(label);
+      // 🔢 Number label (conditional)
+      if (showNumbers) {
+        const labelIndex = i + 1;
+        const label = createNumberLabel(labelIndex.toString());
+        label.position.set(0, 0.45, 0); // above sphere
+        mesh.add(label);
+      }
 
       sceneRef.current.add(mesh);
       anchorMeshesRef.current.push(mesh);
@@ -152,7 +167,10 @@ export default function DynamicCubicBezier() {
 
     controlPointsRef.current.forEach((seg, i) => {
       const A = anchorPointsRef.current[i];
-      const B = anchorPointsRef.current[i + 1];
+      const B = anchorPointsRef.current[(i + 1) % anchorPointsRef.current.length]; // Wrap around for closed shapes
+
+      // Safety check
+      if (!A || !B || !seg.cp1?.pos || !seg.cp2?.pos) return;
 
       if (!seg.line1) {
         seg.line1 = createHandleLine(A, seg.cp1.pos);
@@ -220,10 +238,11 @@ export default function DynamicCubicBezier() {
       anchorInput,
       isEditingAnchorInputRef,
       setAnchorInput,
+      isClosedRef,
 
 
       computeControlPoints: (update) =>
-        computeControlPoints(anchorPointsRef, controlPointsRef, sceneRef, update),
+        computeControlPoints(anchorPointsRef, controlPointsRef, sceneRef, update, isClosedRef.current),
       redrawAll,
       rebuildTube: (r, c) =>
         rebuildTube(
@@ -248,7 +267,7 @@ export default function DynamicCubicBezier() {
       anchorPointsRef,
       controlPointsRef,
       computeControlPoints: (update) =>
-        computeControlPoints(anchorPointsRef, controlPointsRef, sceneRef, update),
+        computeControlPoints(anchorPointsRef, controlPointsRef, sceneRef, update, isClosedRef.current),
       redrawAll,
       activeWidthRef,
       activeColorRef,
@@ -317,17 +336,30 @@ export default function DynamicCubicBezier() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []); // run once
 
-  // ---------- Sync color and width with UI ----------
+  // ---------- Sync color and width with refs only ----------
   useEffect(() => {
     activeColorRef.current = lineColor;
-    redrawAll(activeWidthRef.current, lineColor);
-    // eslint-disable-next-line react-hooks/exhaustive-deps
+    // Update tube material color if tube exists
+    if (tubeMaterialRef.current && tubeMaterialRef.current.uniforms) {
+      tubeMaterialRef.current.uniforms.uColor.value.set(lineColor);
+    }
   }, [lineColor]);
 
   useEffect(() => {
     activeWidthRef.current = lineWidth;
-    redrawAll(lineWidth, activeColorRef.current);
-    // eslint-disable-next-line react-hooks/exhaustive-deps
+    // Rebuild tube with new width if anchors exist
+    if (anchorPointsRef.current.length > 1) {
+      rebuildTube(
+        sceneRef,
+        anchorPointsRef,
+        controlPointsRef,
+        tubeRef,
+        tubeMaterialRef,
+        lineWidth,
+        activeColorRef.current,
+        isClosedRef.current
+      );
+    }
   }, [lineWidth]);
 
   useEffect(() => {
@@ -484,6 +516,10 @@ export default function DynamicCubicBezier() {
 
     if (sel.type === "anchor") {
       anchorPointsRef.current.splice(sel.index, 1);
+
+      // Reset closed state when deleting an anchor (manual editing = open curve)
+      setIsClosed(false);
+      isClosedRef.current = false;
     }
 
     if (sel.type === "control") {
@@ -522,7 +558,14 @@ export default function DynamicCubicBezier() {
       }
     });
 
-    computeControlPoints(anchorPointsRef, controlPointsRef, sceneRef, true);
+    // For open curves, ensure we only have n-1 control segments
+    // This prevents the curve from closing after deletion
+    const expectedSegments = anchorPointsRef.current.length - 1;
+    if (controlPointsRef.current.length > expectedSegments) {
+      controlPointsRef.current.length = expectedSegments;
+    }
+
+    computeControlPoints(anchorPointsRef, controlPointsRef, sceneRef, true, isClosedRef.current);
     redrawAll(lineWidth, lineColor);
 
     selectedRef.current = null;
@@ -678,7 +721,8 @@ export default function DynamicCubicBezier() {
       anchorPointsRef,
       controlPointsRef,
       sceneRef,
-      false
+      false,
+      isClosedRef.current
     );
 
     // Build visuals
@@ -742,7 +786,7 @@ export default function DynamicCubicBezier() {
 
     // 5. Compute (will fill in missing or respect manual)
     // Use updateExisting=true to respect manual controls from shape generator
-    computeControlPoints(anchorPointsRef, controlPointsRef, sceneRef, true);
+    computeControlPoints(anchorPointsRef, controlPointsRef, sceneRef, true, isClosedRef.current);
 
     // 6. Draw
     redrawAll(activeWidthRef.current, activeColorRef.current);
@@ -781,6 +825,9 @@ export default function DynamicCubicBezier() {
         anchorInput={anchorInput}
         setAnchorInput={setAnchorInput}
         onShapeSelect={handleCreateShape}
+        showNumbers={showNumbers}
+        setShowNumbers={setShowNumbers}
+
 
 
 

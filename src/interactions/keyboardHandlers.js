@@ -31,7 +31,7 @@ export const attachKeyboardHandlers = ({
     }
 
     // Recompute and redraw cubic curve
-    computeControlPoints(anchorPointsRef, controlPointsRef, null, true);
+    computeControlPoints(true);
     redrawAll(activeWidthRef.current, activeColorRef.current);
 
     selectedRef.current = null;

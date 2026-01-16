@@ -86,7 +86,8 @@ export const computeControlPoints = (
   anchorPointsRef,
   controlPointsRef,
   sceneRef,
-  updateExisting = false
+  updateExisting = false,
+  isClosed = false
 ) => {
   const anchors = anchorPointsRef.current;
   const cps = controlPointsRef.current;
@@ -98,24 +99,41 @@ export const computeControlPoints = (
   }
 
   const smoothFactor = 0.35;
+  const numSegments = isClosed ? n : n - 1;
 
-  for (let i = 0; i < n - 1; i++) {
+  for (let i = 0; i < numSegments; i++) {
     const A = anchors[i];
-    const B = anchors[i + 1];
+    const B = anchors[(i + 1) % n];
 
     // Tangents
-    const tanA =
-      i === 0
+    let tanA, tanB;
+
+    if (isClosed && n > 2) {
+      // Prev anchor with wrap-around
+      const prevA = anchors[(i - 1 + n) % n];
+      const nextA = anchors[(i + 1) % n];
+      tanA = nextA.clone().sub(prevA);
+      if (tanA.lengthSq() < 0.00001) tanA.copy(B).sub(A);
+      tanA.normalize();
+
+      // Next anchor with wrap-around
+      const nextB = anchors[(i + 2) % n];
+      const prevB = anchors[i];
+      tanB = nextB.clone().sub(prevB);
+      if (tanB.lengthSq() < 0.00001) tanB.copy(B).sub(A);
+      tanB.normalize();
+    } else {
+      tanA = (i === 0)
         ? B.clone().sub(A)
         : anchors[i + 1].clone().sub(anchors[i - 1]);
 
-    const tanB =
-      i === n - 2
+      tanB = (i === n - 2)
         ? B.clone().sub(A)
-        : anchors[i + 2].clone().sub(A);
+        : (anchors[i + 2] ? anchors[i + 2].clone().sub(A) : B.clone().sub(A));
 
-    tanA.normalize();
-    tanB.normalize();
+      tanA.normalize();
+      tanB.normalize();
+    }
 
     const cp1Pos = A.clone().addScaledVector(tanA, smoothFactor);
     const cp2Pos = B.clone().addScaledVector(tanB, -smoothFactor);
@@ -137,10 +155,9 @@ export const computeControlPoints = (
     }
   }
 
-  // Don't truncate if we have more segments (e.g., for closed shapes)
-  // Only truncate if we have too many
-  if (cps.length > n - 1) {
-    cps.length = Math.min(cps.length, n); // Allow up to n segments for closed shapes
+  // Truncate if we have too many
+  if (cps.length > numSegments) {
+    cps.length = numSegments;
   }
 };
 

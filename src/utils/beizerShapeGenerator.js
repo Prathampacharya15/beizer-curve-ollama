@@ -41,6 +41,23 @@ export const generateShapeData = (type, size = 1) => {
 
     switch (type) {
         // ----------------------------
+        // SQUARE
+        // ----------------------------
+        case "square": {
+            const s = size * 1.5; // Equal width and height
+
+            anchors.push(
+                new THREE.Vector3(-s / 2, s / 2, 0),
+                new THREE.Vector3(s / 2, s / 2, 0),
+                new THREE.Vector3(s / 2, -s / 2, 0),
+                new THREE.Vector3(-s / 2, -s / 2, 0)
+            );
+
+            controls = makeLinearControls(anchors);
+            break;
+        }
+
+        // ----------------------------
         // RECTANGLE
         // ----------------------------
         case "rectangle": {
@@ -135,8 +152,8 @@ export const generateShapeData = (type, size = 1) => {
         // STAR (5-point)
         // ----------------------------
         case "star": {
-            const outer = size;
-            const inner = size * 0.45;
+            const outer = size * 1.8; // Increased from size to size * 1.8
+            const inner = size * 0.7;  // Increased proportionally
             const spikes = 5;
 
             for (let i = 0; i < spikes * 2; i++) {

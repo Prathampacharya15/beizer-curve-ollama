@@ -28,6 +28,8 @@ export default function ControlPanel({
   anchorInput,
   setAnchorInput,
   onShapeSelect,
+  showNumbers,
+  setShowNumbers,
 
 }) {
   console.log("DEBUG setAnchorInput:", setAnchorInput);
@@ -146,7 +148,7 @@ export default function ControlPanel({
           <option value="color-change">Color</option>
           <option value="width-change">Width</option>
           <option value="pulse">Pulse</option>
-          <option value="pulse">Pulse</option>
+
         </select>
 
         {/* SHAPES */}
@@ -167,17 +169,19 @@ export default function ControlPanel({
           }}
         >
           <option value="">Select Shape...</option>
-          <optgroup label="2. Rectangles (CORE)">
+          <optgroup label="1. Rectangles (CORE)">
+            <option value="square">Square</option>
             <option value="rectangle">Rectangle</option>
           </optgroup>
-          <optgroup label="3. Basic Shapes">
+          <optgroup label="2. Basic Shapes">
             <option value="circle">Oval / Circle</option>
             <option value="triangle">Triangle</option>
             <option value="diamond">Diamond</option>
             <option value="hexagon">Hexagon</option>
             <option value="star">Star</option>
+
           </optgroup>
-          <optgroup label="4. Block Arrows">
+          <optgroup label="3. Block Arrows">
             <option value="right_arrow">Right Arrow</option>
           </optgroup>
         </select>
@@ -369,6 +373,28 @@ export default function ControlPanel({
           🔁 Mirror Handles
           <span style={{ opacity: 0.8 }}>
             {mirrorHandles ? "ON" : "OFF"}
+          </span>
+        </button>
+
+        <button
+          onClick={() => setShowNumbers(prev => !prev)}
+          style={{
+            padding: "8px 14px",
+            borderRadius: 12,
+            border: "none",
+            background: showNumbers ? "#00c853" : "#2a2a2a",
+            color: "white",
+            fontWeight: 600,
+            cursor: "pointer",
+            display: "flex",
+            alignItems: "center",
+            gap: 6,
+            transition: "background 0.2s ease",
+          }}
+        >
+          🔢 Show Numbers
+          <span style={{ opacity: 0.8 }}>
+            {showNumbers ? "ON" : "OFF"}
           </span>
         </button>
 

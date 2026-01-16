@@ -19,7 +19,7 @@ export const animateDisappear = (tubeMaterialRef, hideSpheres, showSpheres, dura
       mat.uniforms.uProgress.value = obj.p;
     },
     onComplete: () => {
-      if (showSpheres) showSpheres();
+      hideSpheres();
     }
   });
 };

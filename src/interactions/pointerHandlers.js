@@ -23,6 +23,7 @@ export const attachPointerHandlers = ({
   mirrorHandlesRef,
   isEditingAnchorInputRef,
   setAnchorInput,
+  isClosedRef,
 }) => {
   // --------------------------------------------------
   // GET WORLD POSITION UNDER CURSOR (XY plane)
@@ -155,12 +156,7 @@ export const attachPointerHandlers = ({
       const p = getPointerPlaneIntersection(event);
       anchorPointsRef.current.push(p.clone());
 
-      computeControlPoints(
-        anchorPointsRef,
-        controlPointsRef,
-        sceneRef,
-        true
-      );
+      computeControlPoints(true);
 
       redrawAll(activeWidthRef.current, activeColorRef.current);
     }
@@ -185,12 +181,7 @@ export const attachPointerHandlers = ({
         pts.push(p.clone());
       }
 
-      computeControlPoints(
-        anchorPointsRef,
-        controlPointsRef,
-        sceneRef,
-        false
-      );
+      computeControlPoints(false);
       rebuildTube(activeWidthRef.current, activeColorRef.current);
       return;
     }
@@ -198,31 +189,26 @@ export const attachPointerHandlers = ({
     // ---------------- DRAG ANCHOR ----------------
     if (d.type === "anchor") {
       anchorPointsRef.current[d.index].copy(p);
+      const isClosed = isClosedRef?.current;
+      const n = anchorPointsRef.current.length;
 
-      // live UI sync (only if selected & not typing)
+      // live UI sync
       if (
         selectedRef.current &&
         selectedRef.current.type === "anchor" &&
         selectedRef.current.index === d.index &&
         !isEditingAnchorInputRef.current
       ) {
-        setSelectedAnchorPos({
-          x: p.x,
-          y: p.y,
-          z: p.z,
-        });
-
-        setAnchorInput({
-          x: p.x.toFixed(4),
-          y: p.y.toFixed(4),
-        });
+        setSelectedAnchorPos({ x: p.x, y: p.y, z: p.z });
+        setAnchorInput({ x: p.x.toFixed(4), y: p.y.toFixed(4) });
       }
 
       // update left segment cp2
-      if (d.index > 0) {
-        const seg = controlPointsRef.current[d.index - 1];
+      const prevIdx = isClosed ? (d.index - 1 + n) % n : d.index - 1;
+      if (prevIdx >= 0) {
+        const seg = controlPointsRef.current[prevIdx];
         if (seg && !seg.cp2.manual) {
-          const A = anchorPointsRef.current[d.index - 1];
+          const A = anchorPointsRef.current[prevIdx];
           const B = anchorPointsRef.current[d.index];
           const dir = new THREE.Vector3().subVectors(B, A);
           seg.cp2.pos.copy(A.clone().add(dir.multiplyScalar(0.66)));
@@ -231,11 +217,11 @@ export const attachPointerHandlers = ({
       }
 
       // update right segment cp1
-      if (d.index < anchorPointsRef.current.length - 1) {
+      if (d.index < controlPointsRef.current.length) {
         const seg = controlPointsRef.current[d.index];
         if (seg && !seg.cp1.manual) {
           const A = anchorPointsRef.current[d.index];
-          const B = anchorPointsRef.current[d.index + 1];
+          const B = anchorPointsRef.current[(d.index + 1) % n];
           const dir = new THREE.Vector3().subVectors(B, A);
           seg.cp1.pos.copy(A.clone().add(dir.multiplyScalar(0.33)));
           seg.cp1.sphere?.position.copy(seg.cp1.pos);
@@ -248,9 +234,10 @@ export const attachPointerHandlers = ({
       const seg = controlPointsRef.current[d.segment];
       if (!seg) return;
 
+      const n = anchorPointsRef.current.length;
       const { cp1, cp2 } = seg;
       const A = anchorPointsRef.current[d.segment];
-      const B = anchorPointsRef.current[d.segment + 1];
+      const B = anchorPointsRef.current[(d.segment + 1) % n];
 
       seg[d.which].pos.copy(p);
       seg[d.which].manual = true;
@@ -272,8 +259,9 @@ export const attachPointerHandlers = ({
 
     // ---------------- UPDATE HANDLE LINES ----------------
     controlPointsRef.current.forEach((seg, i) => {
+      const n = anchorPointsRef.current.length;
       const A = anchorPointsRef.current[i];
-      const B = anchorPointsRef.current[i + 1];
+      const B = anchorPointsRef.current[(i + 1) % n];
       if (seg.line1) updateHandleLine(seg.line1, A, seg.cp1.pos);
       if (seg.line2) updateHandleLine(seg.line2, B, seg.cp2.pos);
     });
