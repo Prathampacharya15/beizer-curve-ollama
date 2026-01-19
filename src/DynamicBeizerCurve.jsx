@@ -9,12 +9,13 @@ export default function DynamicQuadraticBezier() {
   const mountRef = useRef(null);
 
   // UI state
-  
+
 
   const [isDrawing, setIsDrawing] = useState(true);
   const [lineColor, setLineColor] = useState("#00ff00");
   const [lineWidth, setLineWidth] = useState(0.02);
   const [animType, setAnimType] = useState("disappear-start-to-end");
+  const [shapeAnimType, setShapeAnimType] = useState("left-to-right"); // New state for shape animations
   const [timeLine, setTimeLine] = useState(3); // numeric, default 3s
 
   // internal refs
@@ -173,7 +174,7 @@ export default function DynamicQuadraticBezier() {
     // use CatmullRom from sampled points to produce smooth TubeGeometry input
     const path = new THREE.CatmullRomCurve3(sampled, false, "centripetal", 0.5);
     const tubularSegments = Math.max(8, sampled.length - 1);
-    const geometry = new THREE.TubeGeometry(path, tubularSegments*2, radius, 32, false);
+    const geometry = new THREE.TubeGeometry(path, tubularSegments * 2, radius, 32, false);
 
     const material = createTubeMaterial(colorHex);
     tubeMaterialRef.current = material;
@@ -264,55 +265,55 @@ export default function DynamicQuadraticBezier() {
   };
 
   const animateColor = ({ toColor = "#ff00ff", duration = 2.0 } = {}) => {
-  if (!tubeMaterialRef.current) return;
+    if (!tubeMaterialRef.current) return;
 
-  const start = activeColorRef.current;
-  const col = new THREE.Color(start);
-  const target = new THREE.Color(toColor);
+    const start = activeColorRef.current;
+    const col = new THREE.Color(start);
+    const target = new THREE.Color(toColor);
 
-  const obj = { r: col.r, g: col.g, b: col.b };
+    const obj = { r: col.r, g: col.g, b: col.b };
 
-  gsap.to(obj, {
-    r: target.r,
-    g: target.g,
-    b: target.b,
-    duration,
-    ease: "power1.inOut",
-    onUpdate: () => {
-      tubeMaterialRef.current.uniforms.uColor.value.setRGB(obj.r, obj.g, obj.b);
-    },
-    onComplete: () => {
-      // ✅ HARD SYNC
-      activeColorRef.current = toColor;
-      setLineColor(toColor); // sync React state instantly
-      redrawAll(activeWidthRef.current, toColor);
-    },
-  });
-};
+    gsap.to(obj, {
+      r: target.r,
+      g: target.g,
+      b: target.b,
+      duration,
+      ease: "power1.inOut",
+      onUpdate: () => {
+        tubeMaterialRef.current.uniforms.uColor.value.setRGB(obj.r, obj.g, obj.b);
+      },
+      onComplete: () => {
+        // ✅ HARD SYNC
+        activeColorRef.current = toColor;
+        setLineColor(toColor); // sync React state instantly
+        redrawAll(activeWidthRef.current, toColor);
+      },
+    });
+  };
 
 
   // animate width change by rebuilding geometry at intermediate widths
   const animateWidth = ({ toWidth = 0.04, duration = 2.0 } = {}) => {
-  const start = activeWidthRef.current;
-  const obj = { t: 0 };
+    const start = activeWidthRef.current;
+    const obj = { t: 0 };
 
-  gsap.to(obj, {
-    t: 1,
-    duration,
-    ease: "power1.inOut",
-    onUpdate: () => {
-      const val = start + (toWidth - start) * obj.t;
-      activeWidthRef.current = val; // ✅ live sync
-      rebuildTube(val, activeColorRef.current);
-    },
-    onComplete: () => {
-      // ✅ HARD SYNC on finish
-      activeWidthRef.current = toWidth;
-      setLineWidth(toWidth);
-      redrawAll(toWidth, activeColorRef.current);
-    },
-  });
-};
+    gsap.to(obj, {
+      t: 1,
+      duration,
+      ease: "power1.inOut",
+      onUpdate: () => {
+        const val = start + (toWidth - start) * obj.t;
+        activeWidthRef.current = val; // ✅ live sync
+        rebuildTube(val, activeColorRef.current);
+      },
+      onComplete: () => {
+        // ✅ HARD SYNC on finish
+        activeWidthRef.current = toWidth;
+        setLineWidth(toWidth);
+        redrawAll(toWidth, activeColorRef.current);
+      },
+    });
+  };
 
 
   const animatePulse = ({ duration = 1.0, times = 3 } = {}) => {
@@ -329,6 +330,64 @@ export default function DynamicQuadraticBezier() {
         ease: "sine.inOut",
       }
     );
+  };
+
+  // Shape reveal animation wrapper
+  const animateShapeReveal = ({ direction = "left-to-right", duration = timeLine } = {}) => {
+    if (!tubeRef.current || !tubeMaterialRef.current) return;
+
+    hideSpheres();
+
+    const mat = tubeMaterialRef.current;
+    let axis = 0; // 0 = X, 1 = Y
+    let dir = 1;  // 1 = positive, -1 = negative
+
+    switch (direction) {
+      case "left-to-right":
+        axis = 0;
+        dir = 1;
+        break;
+      case "right-to-left":
+        axis = 0;
+        dir = -1;
+        break;
+      case "top-to-bottom":
+        axis = 1;
+        dir = -1;
+        break;
+      case "bottom-to-top":
+        axis = 1;
+        dir = 1;
+        break;
+      default:
+        axis = 0;
+        dir = 1;
+    }
+
+    // Set world-space reveal mode
+    mat.uniforms.uRevealMode.value = 1;
+    mat.uniforms.uRevealAxis.value = axis;
+    mat.uniforms.uRevealDirection.value = dir;
+
+    const obj = { p: 0.0 };
+
+    gsap.to(obj, {
+      p: 1.0,
+      duration,
+      ease: "power2.inOut",
+      onUpdate: () => {
+        mat.uniforms.uProgress.value = obj.p;
+      },
+      onComplete: () => {
+        // Reset to path-based mode for other animations
+        mat.uniforms.uRevealMode.value = 0;
+        hideSpheres();
+      }
+    });
+  };
+
+  const runShapeAnimation = () => {
+    animateShapeReveal({ direction: shapeAnimType, duration: timeLine });
   };
 
   const runSelectedAnimation = () => {
@@ -623,15 +682,15 @@ export default function DynamicQuadraticBezier() {
   }, []); // run once
 
   // keep tube in sync when color or width state changes via UI
-useEffect(() => {
-  activeColorRef.current = lineColor;
-  redrawAll(activeWidthRef.current, lineColor);
-}, [lineColor]);
+  useEffect(() => {
+    activeColorRef.current = lineColor;
+    redrawAll(activeWidthRef.current, lineColor);
+  }, [lineColor]);
 
-useEffect(() => {
-  activeWidthRef.current = lineWidth;
-  redrawAll(lineWidth, activeColorRef.current);
-}, [lineWidth]);
+  useEffect(() => {
+    activeWidthRef.current = lineWidth;
+    redrawAll(lineWidth, activeColorRef.current);
+  }, [lineWidth]);
 
 
   // helpers exposed to UI
@@ -703,217 +762,255 @@ useEffect(() => {
   return (
     <>
       <div
-  style={{
-    position: "absolute",
-    left: 20,
-    top: 20,
-    zIndex: 10,
-    width: 320,
-    background: "rgba(20,20,25,0.75)",
-    backdropFilter: "blur(12px)",
-    WebkitBackdropFilter: "blur(12px)",
-    padding: 16,
-    borderRadius: 16,
-    color: "white",
-    fontFamily: "Inter, system-ui, sans-serif",
-    display: "flex",
-    flexDirection: "column",
-    gap: 14,
-    boxShadow: "0 10px 40px rgba(0,0,0,0.4)",
-    border: "1px solid rgba(255,255,255,0.1)",
-  }}
->
-  <div style={{ fontWeight: 700, fontSize: 18, letterSpacing: 0.5 }}>
-  Bezier Line Editor
-  </div>
+        style={{
+          position: "absolute",
+          left: 20,
+          top: 20,
+          zIndex: 10,
+          width: 320,
+          background: "rgba(20,20,25,0.75)",
+          backdropFilter: "blur(12px)",
+          WebkitBackdropFilter: "blur(12px)",
+          padding: 16,
+          borderRadius: 16,
+          color: "white",
+          fontFamily: "Inter, system-ui, sans-serif",
+          display: "flex",
+          flexDirection: "column",
+          gap: 14,
+          boxShadow: "0 10px 40px rgba(0,0,0,0.4)",
+          border: "1px solid rgba(255,255,255,0.1)",
+        }}
+      >
+        <div style={{ fontWeight: 700, fontSize: 18, letterSpacing: 0.5 }}>
+          Bezier Line Editor
+        </div>
 
-  {/* DRAW MODE */}
-  <div style={{ display: "flex", gap: 8 }}>
-    <button
-      onClick={startDrawing}
-      style={{
-        flex: 1,
-        padding: "8px 12px",
-        borderRadius: 10,
-        border: "none",
-        background: isDrawing ? "#2ecc71" : "#2a2a2a",
-        color: "white",
-        fontWeight: 600,
-        cursor: "pointer",
-      }}
-    >
-      Start
-    </button>
-    <button
-      onClick={stopDrawing}
-      style={{
-        flex: 1,
-        padding: "8px 12px",
-        borderRadius: 10,
-        border: "none",
-        background: !isDrawing ? "#e74c3c" : "#2a2a2a",
-        color: "white",
-        fontWeight: 600,
-        cursor: "pointer",
-      }}
-    >
-      Stop
-    </button>
-  </div>
+        {/* DRAW MODE */}
+        <div style={{ display: "flex", gap: 8 }}>
+          <button
+            onClick={startDrawing}
+            style={{
+              flex: 1,
+              padding: "8px 12px",
+              borderRadius: 10,
+              border: "none",
+              background: isDrawing ? "#2ecc71" : "#2a2a2a",
+              color: "white",
+              fontWeight: 600,
+              cursor: "pointer",
+            }}
+          >
+            Start
+          </button>
+          <button
+            onClick={stopDrawing}
+            style={{
+              flex: 1,
+              padding: "8px 12px",
+              borderRadius: 10,
+              border: "none",
+              background: !isDrawing ? "#e74c3c" : "#2a2a2a",
+              color: "white",
+              fontWeight: 600,
+              cursor: "pointer",
+            }}
+          >
+            Stop
+          </button>
+        </div>
 
-  {/* COLOR + WIDTH */}
-  <div style={{ display: "flex", gap: 12, alignItems: "center" }}>
-    <label style={{ display: "flex", alignItems: "center", gap: 8 }}>
-      
-      <input
-        type="color"
-        value={lineColor}
-        onChange={(e) => setLineColor(e.target.value)}
-        style={{ width: 34, height: 28, border: "none" }}
-      />
-    </label>
+        {/* COLOR + WIDTH */}
+        <div style={{ display: "flex", gap: 12, alignItems: "center" }}>
+          <label style={{ display: "flex", alignItems: "center", gap: 8 }}>
 
-    <div style={{ flex: 1 }}>
-      <div style={{ fontSize: 12, opacity: 0.7 }}>
-        Width: {lineWidth.toFixed(2)}
+            <input
+              type="color"
+              value={lineColor}
+              onChange={(e) => setLineColor(e.target.value)}
+              style={{ width: 34, height: 28, border: "none" }}
+            />
+          </label>
+
+          <div style={{ flex: 1 }}>
+            <div style={{ fontSize: 12, opacity: 0.7 }}>
+              Width: {lineWidth.toFixed(2)}
+            </div>
+            <input
+              type="range"
+              min="0.02"
+              max="0.5"
+              step="0.01"
+              value={lineWidth}
+              onChange={(e) => setLineWidth(parseFloat(e.target.value))}
+              style={{ width: "100%" }}
+            />
+          </div>
+        </div>
+
+        {/* ANIMATION */}
+        <div style={{ fontWeight: 600 }}>Animation</div>
+
+        <select
+          value={animType}
+          onChange={(e) => setAnimType(e.target.value)}
+          style={{
+            background: "#1f1f1f",
+            color: "white",
+            border: "1px solid #333",
+            padding: "8px 10px",
+            borderRadius: 10,
+          }}
+        >
+          <option value="disappear-start-to-end">Disappear start to end</option>
+          <option value="disappear-end-to-start">Disappear end to start</option>
+          <option value="color-change">Color</option>
+          <option value="width-change">Width</option>
+          <option value="pulse">Pulse</option>
+        </select>
+
+        {/* SHAPE ANIMATION */}
+        <div style={{ fontWeight: 600, marginTop: 8 }}>Shape Reveal</div>
+
+        <select
+          value={shapeAnimType}
+          onChange={(e) => setShapeAnimType(e.target.value)}
+          style={{
+            background: "#1f1f1f",
+            color: "white",
+            border: "1px solid #333",
+            padding: "8px 10px",
+            borderRadius: 10,
+          }}
+        >
+          <option value="left-to-right">Left → Right</option>
+          <option value="right-to-left">Right → Left</option>
+          <option value="top-to-bottom">Top → Bottom</option>
+          <option value="bottom-to-top">Bottom → Top</option>
+        </select>
+
+        {/* TIMELINE */}
+        <div>
+          <div
+            style={{
+              display: "flex",
+              justifyContent: "space-between",
+              fontSize: 12,
+              opacity: 0.7,
+            }}
+          >
+            <span>Timeline</span>
+            <span>{timeLine}s</span>
+          </div>
+          <input
+            type="range"
+            min="1"
+            max="20"
+            step="1"
+            value={timeLine}
+            onChange={(e) => setTimeLine(Number(e.target.value))}
+            style={{ width: "100%" }}
+          />
+        </div>
+
+
+        {/* ACTIONS */}
+        <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 8 }}>
+          <button
+            onClick={runSelectedAnimation}
+            style={{
+              padding: "10px",
+              borderRadius: 10,
+              border: "none",
+              background: "linear-gradient(135deg, #00c853, #64dd17)",
+              color: "black",
+              fontWeight: 700,
+              cursor: "pointer",
+            }}
+          >
+            Line Anim
+          </button>
+
+          <button
+            onClick={runShapeAnimation}
+            style={{
+              padding: "10px",
+              borderRadius: 10,
+              border: "none",
+              background: "linear-gradient(135deg, #2196f3, #00bcd4)",
+              color: "white",
+              fontWeight: 700,
+              cursor: "pointer",
+            }}
+          >
+            Shape Reveal
+          </button>
+        </div>
+
+        <div style={{ display: "grid", gridTemplateColumns: "1fr", gap: 8 }}>
+          <button
+            onClick={clearAll}
+            style={{
+              padding: "10px",
+              borderRadius: 10,
+              border: "none",
+              background: "#b71c1c",
+              color: "white",
+              fontWeight: 700,
+              cursor: "pointer",
+            }}
+          >
+            Clear
+          </button>
+        </div>
+
+        {/* SPHERES */}
+        <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 8 }}>
+          <button
+            onClick={showSpheres}
+            style={{
+              padding: "8px",
+              borderRadius: 10,
+              border: "none",
+              background: "#2a2a2a",
+              color: "white",
+              cursor: "pointer",
+            }}
+          >
+            Show Points
+          </button>
+
+          <button
+            onClick={hideSpheres}
+            style={{
+              padding: "8px",
+              borderRadius: 10,
+              border: "none",
+              background: "#2a2a2a",
+              color: "white",
+              cursor: "pointer",
+            }}
+          >
+            Hide Points
+          </button>
+        </div>
+
+        {/* DELETE */}
+        <button
+          onClick={deleteSelected}
+          style={{
+            padding: "10px",
+            borderRadius: 10,
+            border: "none",
+            background: "linear-gradient(135deg,#ff5252,#ff1744)",
+            color: "white",
+            fontWeight: 700,
+            cursor: "pointer",
+          }}
+        >
+          🗑 Delete Selected
+        </button>
       </div>
-      <input
-        type="range"
-        min="0.02"
-        max="0.5"
-        step="0.01"
-        value={lineWidth}
-        onChange={(e) => setLineWidth(parseFloat(e.target.value))}
-        style={{ width: "100%" }}
-      />
-    </div>
-  </div>
-
-  {/* ANIMATION */}
-  <div style={{ fontWeight: 600 }}>Animation</div>
-
-  <select
-    value={animType}
-    onChange={(e) => setAnimType(e.target.value)}
-    style={{
-      background: "#1f1f1f",
-      color: "white",
-      border: "1px solid #333",
-      padding: "8px 10px",
-      borderRadius: 10,
-    }}
-  >
-    <option value="disappear-start-to-end">Disappear start to end</option>
-    <option value="disappear-end-to-start">Disappear end to start</option>
-    <option value="color-change">Color</option>
-    <option value="width-change">Width</option>
-    <option value="pulse">Pulse</option>
-  </select>
-
-  {/* TIMELINE */}
-  <div>
-    <div
-      style={{
-        display: "flex",
-        justifyContent: "space-between",
-        fontSize: 12,
-        opacity: 0.7,
-      }}
-    >
-      <span>Timeline</span>
-      <span>{timeLine}s</span>
-    </div>
-    <input
-      type="range"
-      min="1"
-      max="20"
-      step="1"
-      value={timeLine}
-      onChange={(e) => setTimeLine(Number(e.target.value))}
-      style={{ width: "100%" }}
-    />
-  </div>
-
-  {/* ACTIONS */}
-  <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 8 }}>
-    <button
-      onClick={runSelectedAnimation}
-      style={{
-        padding: "10px",
-        borderRadius: 10,
-        border: "none",
-        background: "linear-gradient(135deg, #00c853, #64dd17)",
-        color: "black",
-        fontWeight: 700,
-        cursor: "pointer",
-      }}
-    >
-      Animate
-    </button>
-
-    <button
-      onClick={clearAll}
-      style={{
-        padding: "10px",
-        borderRadius: 10,
-        border: "none",
-        background: "#b71c1c",
-        color: "white",
-        fontWeight: 700,
-        cursor: "pointer",
-      }}
-    >
-      Clear
-    </button>
-  </div>
-
-  {/* SPHERES */}
-  <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 8 }}>
-    <button
-      onClick={showSpheres}
-      style={{
-        padding: "8px",
-        borderRadius: 10,
-        border: "none",
-        background: "#2a2a2a",
-        color: "white",
-        cursor: "pointer",
-      }}
-    >
-      Show Points
-    </button>
-
-    <button
-      onClick={hideSpheres}
-      style={{
-        padding: "8px",
-        borderRadius: 10,
-        border: "none",
-        background: "#2a2a2a",
-        color: "white",
-        cursor: "pointer",
-      }}
-    >
-      Hide Points
-    </button>
-  </div>
-
-  {/* DELETE */}
-  <button
-    onClick={deleteSelected}
-    style={{
-      padding: "10px",
-      borderRadius: 10,
-      border: "none",
-      background: "linear-gradient(135deg,#ff5252,#ff1744)",
-      color: "white",
-      fontWeight: 700,
-      cursor: "pointer",
-    }}
-  >
-    🗑 Delete Selected
-  </button>
-</div>
 
 
       <div

@@ -30,7 +30,9 @@ export default function ControlPanel({
   onShapeSelect,
   showNumbers,
   setShowNumbers,
-
+  shapeAnimType,
+  setShapeAnimType,
+  runShapeAnimation,
 }) {
   console.log("DEBUG setAnchorInput:", setAnchorInput);
 
@@ -148,7 +150,25 @@ export default function ControlPanel({
           <option value="color-change">Color</option>
           <option value="width-change">Width</option>
           <option value="pulse">Pulse</option>
+        </select>
 
+        {/* SHAPE ANIMATION */}
+        <div style={{ fontWeight: 600, marginTop: 8 }}>Shape Reveal</div>
+        <select
+          value={shapeAnimType}
+          onChange={(e) => setShapeAnimType(e.target.value)}
+          style={{
+            background: "#1f1f1f",
+            color: "white",
+            border: "1px solid #333",
+            padding: "8px 10px",
+            borderRadius: 10,
+          }}
+        >
+          <option value="left-to-right">Left → Right</option>
+          <option value="right-to-left">Right → Left</option>
+          <option value="top-to-bottom">Top → Bottom</option>
+          <option value="bottom-to-top">Bottom → Top</option>
         </select>
 
         {/* SHAPES */}
@@ -225,9 +245,26 @@ export default function ControlPanel({
               cursor: "pointer",
             }}
           >
-            Animate
+            Line Anim
           </button>
 
+          <button
+            onClick={runShapeAnimation}
+            style={{
+              padding: "10px",
+              borderRadius: 10,
+              border: "none",
+              background: "linear-gradient(135deg, #2196f3, #00bcd4)",
+              color: "white",
+              fontWeight: 700,
+              cursor: "pointer",
+            }}
+          >
+            Shape Reveal
+          </button>
+        </div>
+
+        <div style={{ display: "grid", gridTemplateColumns: "1fr", gap: 8 }}>
           <button
             onClick={clearAll}
             style={{

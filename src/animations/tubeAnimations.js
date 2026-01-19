@@ -101,3 +101,58 @@ export const animatePulse = (tubeMaterialRef, duration, times) => {
     }
   );
 };
+
+export const animateShapeReveal = (tubeMaterialRef, hideSpheres, showSpheres, duration, direction) => {
+  const mat = tubeMaterialRef.current;
+  if (!mat) return;
+
+  hideSpheres();
+
+  // Configure reveal mode based on direction
+  let axis = 0; // 0 = X, 1 = Y
+  let dir = 1;  // 1 = positive, -1 = negative
+
+  switch (direction) {
+    case "left-to-right":
+      axis = 0;
+      dir = 1;
+      break;
+    case "right-to-left":
+      axis = 0;
+      dir = -1;
+      break;
+    case "top-to-bottom":
+      axis = 1;
+      dir = -1; // Y-axis is inverted in screen space
+      break;
+    case "bottom-to-top":
+      axis = 1;
+      dir = 1;
+      break;
+    default:
+      axis = 0;
+      dir = 1;
+  }
+
+  // Set world-space reveal mode
+  mat.uniforms.uRevealMode.value = 1;
+  mat.uniforms.uRevealAxis.value = axis;
+  mat.uniforms.uRevealDirection.value = dir;
+
+  const obj = { p: 0.0 };
+
+  gsap.to(obj, {
+    p: 1.0,
+    duration,
+    ease: "power2.inOut",
+    onUpdate: () => {
+      mat.uniforms.uProgress.value = obj.p;
+    },
+    onComplete: () => {
+      // Reset to path-based mode for other animations
+      mat.uniforms.uRevealMode.value = 0;
+      hideSpheres();
+    }
+  });
+};
+

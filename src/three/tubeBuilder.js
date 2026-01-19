@@ -8,11 +8,21 @@ export const createTubeMaterial = (colorHex) => {
       uColor: { value: color },
       uProgress: { value: 1.0 },
       uOpacity: { value: 1.0 },
+      // New uniforms for world-space reveal
+      uRevealMode: { value: 0 }, // 0 = path-based, 1 = world-space
+      uRevealAxis: { value: 0 }, // 0 = X-axis, 1 = Y-axis
+      uRevealDirection: { value: 1 }, // 1 = positive, -1 = negative
+      uBoundsMin: { value: new THREE.Vector2(-10, -10) },
+      uBoundsMax: { value: new THREE.Vector2(10, 10) },
     },
     vertexShader: `
       varying vec2 vUv;
+      varying vec3 vWorldPos;
       void main(){
         vUv = uv;
+        // Pass world position to fragment shader
+        vec4 worldPos = modelMatrix * vec4(position, 1.0);
+        vWorldPos = worldPos.xyz;
         gl_Position = projectionMatrix * modelViewMatrix * vec4(position,1.0);
       }
     `,
@@ -20,9 +30,39 @@ export const createTubeMaterial = (colorHex) => {
       uniform vec3 uColor;
       uniform float uProgress;
       uniform float uOpacity;
+      uniform int uRevealMode;
+      uniform int uRevealAxis;
+      uniform float uRevealDirection;
+      uniform vec2 uBoundsMin;
+      uniform vec2 uBoundsMax;
+      
       varying vec2 vUv;
+      varying vec3 vWorldPos;
+      
       void main(){
-        if (vUv.x > uProgress) discard;
+        float revealValue;
+        
+        if (uRevealMode == 1) {
+          // World-space directional reveal
+          float coord = uRevealAxis == 0 ? vWorldPos.x : vWorldPos.y;
+          float minBound = uRevealAxis == 0 ? uBoundsMin.x : uBoundsMin.y;
+          float maxBound = uRevealAxis == 0 ? uBoundsMax.x : uBoundsMax.y;
+          
+          // Normalize coordinate to 0-1 range
+          float normalized = (coord - minBound) / (maxBound - minBound);
+          
+          // Apply direction
+          if (uRevealDirection < 0.0) {
+            normalized = 1.0 - normalized;
+          }
+          
+          revealValue = normalized;
+        } else {
+          // Path-based reveal (original behavior)
+          revealValue = vUv.x;
+        }
+        
+        if (revealValue > uProgress) discard;
         gl_FragColor = vec4(uColor, uOpacity);
       }
     `,
@@ -131,6 +171,14 @@ export const rebuildTube = (
 
   const material = createTubeMaterial(colorHex);
   const mesh = new THREE.Mesh(geometry, material);
+
+  // Compute bounding box for world-space reveal animations
+  geometry.computeBoundingBox();
+  const bbox = geometry.boundingBox;
+
+  // Update material uniforms with bounding box
+  material.uniforms.uBoundsMin.value.set(bbox.min.x, bbox.min.y);
+  material.uniforms.uBoundsMax.value.set(bbox.max.x, bbox.max.y);
 
   tubeRef.current = mesh;
   tubeMaterialRef.current = material;

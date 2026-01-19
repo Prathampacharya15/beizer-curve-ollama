@@ -18,6 +18,7 @@ import {
   animateColor,
   animateWidth,
   animatePulse,
+  animateShapeReveal,
 } from "../animations/tubeAnimations";
 
 import { attachPointerHandlers } from "../interactions/pointerHandlers";
@@ -39,6 +40,7 @@ export default function DynamicCubicBezier() {
   const [lineColor, setLineColor] = useState("#00ff00");
   const [lineWidth, setLineWidth] = useState(0.02);
   const [animType, setAnimType] = useState("disappear-start-to-end");
+  const [shapeAnimType, setShapeAnimType] = useState("left-to-right"); // New state for shape animations
   const [timeLine, setTimeLine] = useState(3);
   const [selectedAnchorPos, setSelectedAnchorPos] = useState(null);
   const [mirrorHandles, setMirrorHandles] = useState(false);
@@ -445,6 +447,16 @@ export default function DynamicCubicBezier() {
     }
   };
 
+  const runShapeAnimation = () => {
+    animateShapeReveal(
+      tubeMaterialRef,
+      hideSpheres,
+      showSpheres,
+      timeLine,
+      shapeAnimType
+    );
+  };
+
   const clearAll = () => {
     const scene = sceneRef.current;
     if (!scene) return;
@@ -827,6 +839,9 @@ export default function DynamicCubicBezier() {
         onShapeSelect={handleCreateShape}
         showNumbers={showNumbers}
         setShowNumbers={setShowNumbers}
+        shapeAnimType={shapeAnimType}
+        setShapeAnimType={setShapeAnimType}
+        runShapeAnimation={runShapeAnimation}
 
 
 
